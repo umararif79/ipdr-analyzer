@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPDR API Specification</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --bg-color: #fafafa;
+            --sidebar-bg: #ffffff;
+            --border-color: #e8e8e8;
+            --text-main: #3b4151;
+            --text-muted: #757575;
+            --get-color: #61affe;
+            --post-color: #49cc90;
+            --code-bg: #272822;
+            --code-text: #f8f8f2;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: #fff;
+            position: sticky;
+            top: 0;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.2rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-group {
+            padding: 15px 0;
+        }
+
+        .nav-group-title {
+            padding: 0 20px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .nav-item {
+            padding: 8px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--text-main);
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .nav-item:hover { background: #f0f7ff; }
+        .nav-item.active { background: #eef4ff; border-right: 3px solid var(--primary-color); font-weight: 500; }
+
+        .method-badge {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            width: 45px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        .bg-get { background: var(--get-color); }
+        .bg-post { background: var(--post-color); }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px;
+        }
+
+        .endpoint-section {
+            display: none;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .endpoint-section.active { display: block; }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .path-bar {
+            background: white;
+            border: 1px solid var(--border-color);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .description {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+        }
+
+        /* Grid Layout for Docs vs Playground */
+        .api-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+        }
+        th { background: #f8f9fa; color: var(--text-muted); }
+
+        /* Playground */
+        .playground {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            position: sticky;
+            top: 40px;
+        }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.85rem; font-weight: bold; color: var(--text-muted); }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+            background: #fafafa;
+        }
+
+        .btn-execute {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        .btn-execute:hover { background: #0062cc; }
+        .btn-execute:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Structured Form Styles */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .form-grid .form-group { margin-bottom: 0; }
+        .form-grid .form-group.full-width { grid-column: span 2; }
+
+        .json-preview {
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            text-decoration: underline;
+            display: block;
+            text-align: center;
+        }
+
+        .response-area {
+            margin-top: 20px;
+        }
+        .response-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+            color: var(--text-muted);
+        }
+        pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 15px;
+            border-radius: 5px;
+            overflow: auto;
+            font-size: 0.85rem;
+            margin: 0;
+            max-height: 400px;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1><i class="fas fa-database"></i> IPDR API</h1>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Authentication</div>
+            <div style="padding: 0 20px 15px 20px;">
+                <label style="font-size: 0.7rem; color: var(--text-muted); font-weight: bold; display: block; margin-bottom: 5px;">BEARER TOKEN</label>
+                <input type="text" id="api-token" placeholder="Paste JWT token here..." style="width: 100%; padding: 6px; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+            </div>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">System</div>
+            <a href="#health" class="nav-item active" onclick="showSection('health')">
+                <span class="method-badge bg-get">GET</span> Health
+            </a>
+            <a href="#columns" class="nav-item" onclick="showSection('columns')">
+                <span class="method-badge bg-get">GET</span> Columns
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Data Operations</div>
+            <a href="#query" class="nav-item" onclick="showSection('query')">
+                <span class="method-badge bg-post">POST</span> Query
+            </a>
+            <a href="#stats" class="nav-item" onclick="showSection('stats')">
+                <span class="method-badge bg-post">POST</span> Stats
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Administration</div>
+            <a href="#admin-conns-get" class="nav-item" onclick="showSection('admin-conns-get')">
+                <span class="method-badge bg-get">GET</span> List Connections
+            </a>
+            <a href="#admin-conns-post" class="nav-item" onclick="showSection('admin-conns-post')">
+                <span class="method-badge bg-post">POST</span> Create Connection
+            </a>
+            <a href="#admin-conns-put" class="nav-item" onclick="showSection('admin-conns-put')">
+                <span class="method-badge bg-post">PUT</span> Update Connection
+            </a>
+            <a href="#admin-conns-del" class="nav-item" onclick="showSection('admin-conns-del')">
+                <span class="method-badge bg-post" style="background: #ff4d4f">DEL</span> Delete Connection
+            </a>
+            <a href="#admin-users-get" class="nav-item" onclick="showSection('admin-users-get')">
+                <span class="method-badge bg-get">GET</span> List Users
+            </a>
+            <a href="#admin-users-post" class="nav-item" onclick="showSection('admin-users-post')">
+                <span class="method-badge bg-post">POST</span> Create User
+            </a>
+            <a href="#admin-users-put" class="nav-item" onclick="showSection('admin-users-put')">
+                <span class="method-badge bg-post">PUT</span> Update User
+            </a>
+            <a href="#admin-users-del" class="nav-item" onclick="showSection('admin-users-del')">
+                <span class="method-badge bg-post" style="background: #ff4d4f">DEL</span> Delete User
+            </a>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- HEALTH -->
+        <div id="health" class="endpoint-section active">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/health?connectionIds=0
+                </div>
+            </div>
+            <div class="description">Checks connectivity. Use <code>connectionIds=0</code> for all assigned, or a specific ID (e.g. <code>connectionIds=1</code>).</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>status</td><td>string</td><td>'ok' or 'error'</td></tr>
+                            <tr><td>connectionId</td><td>integer</td><td>The connection checked</td></tr>
+                            <tr><td>timestamp</td><td>ISO8601</td><td>Server time</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Query Parameters</label>
+                        <input type="text" id="req-health-params" value="connectionIds=0" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execHealth()">Execute</button>
+                    <div id="res-health" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-health">Status: -</span><span id="time-health">0ms</span></div>
+                        <pre id="body-health"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNS -->
+        <div id="columns" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/columns?connectionIds=0
+                </div>
+            </div>
+            <div class="description">Discovers available columns. Use <code>connectionIds=0</code> for all, or a specific ID.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <p>Returns an array of column definitions:</p>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Actual column name in ClickHouse</td></tr>
+                            <tr><td>type</td><td>string</td><td>ClickHouse data type</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Query Parameters</label>
+                        <input type="text" id="req-columns-params" value="connectionIds=0" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execColumns()">Execute</button>
+                    <div id="res-columns" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-columns">Status: -</span><span id="time-columns">0ms</span></div>
+                        <pre id="body-columns"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- QUERY -->
+        <div id="query" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/query
+                </div>
+            </div>
+            <div class="description">Fetch logs. <b>Required:</b> <code class="column-highlight">connectionIds</code> (e.g. "0" for all, "1" for single, "1,2" for multiple).</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Filter</th><th>Type</th><th>Example</th></tr></thead>
+                        <tbody>
+                            <tr><td>connectionIds</td><td>String/Int</td><td>"0" or "1,2"</td></tr>
+                            <tr><td>dateFrom</td><td>Date</td><td>"2026-01-01"</td></tr>
+                            <tr><td>dateTo</td><td>Date</td><td>"2026-01-31"</td></tr>
+                            <tr><td>srcIp</td><td>String</td><td>"192.168.1.1"</td></tr>
+                            <tr><td>dstIp</td><td>String</td><td>"8.8.8.8"</td></tr>
+                            <tr><td>protocol</td><td>String</td><td>"TCP"</td></tr>
+                            <tr><td>pageSize</td><td>Int</td><td>50</td></tr>
+                            <tr><td>sortColumn</td><td>String</td><td>"timestamp"</td></tr>
+                            <tr><td>sortOrder</td><td>Enum</td><td>"DESC" / "ASC"</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Request Body (JSON)</label>
+                            <button onclick="loadSample('query')" style="font-size: 0.7rem; cursor: pointer; padding: 2px 8px; background: #eee; border: 1px solid #ccc; border-radius: 3px;">Load Sample</button>
+                        </div>
+                        <textarea id="req-query" rows="12" style="font-family: monospace;">{
+  "connectionIds": "0",
+  "filters": {
+    "dateFrom": "2026-05-10",
+    "srcIp": ""
+  },
+  "page": 1,
+  "pageSize": 50,
+  "sortColumn": "timestamp",
+  "sortOrder": "DESC"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" id="btn-query" onclick="execQuery()">Execute</button>
+                    <div id="res-query" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-query">Status: -</span><span id="time-query">0ms</span></div>
+                        <pre id="body-query"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATS -->
+        <div id="stats" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/stats
+                </div>
+            </div>
+            <div class="description">Aggregates log data. <b>Required:</b> <code class="column-highlight">connectionIds</code>.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>connectionIds</td><td>String/Int</td><td>"0" or "1,2"</td></tr>
+                            <tr><td>filters</td><td>Object</td><td>Same filter set as /api/query</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Request Body (JSON)</label>
+                            <button onclick="loadSample('stats')" style="font-size: 0.7rem; cursor: pointer; padding: 2px 8px; background: #eee; border: 1px solid #ccc; border-radius: 3px;">Load Sample</button>
+                        </div>
+                        <textarea id="req-stats" rows="10" style="font-family: monospace;">{
+  "connectionIds": "0",
+  "filters": {
+    "dateFrom": "2026-05-10"
+  }
+}</textarea>
+                    </div>
+                    <button class="btn-execute" id="btn-stats" onclick="execStats()">Execute</button>
+                    <div id="res-stats" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats">Status: -</span><span id="time-stats">0ms</span></div>
+                        <pre id="body-stats"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN - CONNECTIONS -->
+        <div id="admin-conns-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/connections
+                </div>
+            </div>
+            <div class="description">Lists all configured ClickHouse connections. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Connection ID</td></tr>
+                            <tr><td>label</td><td>string</td><td>Descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>ClickHouse host URL</td></tr>
+                            <tr><td>username</td><td>string</td><td>Database username</td></tr>
+                            <tr><td>database</td><td>string</td><td>Database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminConnsGet()">Execute</button>
+                    <div id="res-admin-conns-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-get">Status: -</span><span id="time-admin-conns-get">0ms</span></div>
+                        <pre id="body-admin-conns-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/connections
+                </div>
+            </div>
+            <div class="description">Create a new ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>label</td><td>string</td><td>Descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>ClickHouse host URL</td></tr>
+                            <tr><td>username</td><td>string</td><td>Database username</td></tr>
+                            <tr><td>password</td><td>string</td><td>Database password</td></tr>
+                            <tr><td>database</td><td>string</td><td>Database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-conns-post" rows="8">{
+  "label": "Wavecomm-Production",
+  "host": "http://10.202.1.206:8123",
+  "username": "default",
+  "password": "your-password",
+  "database": "syslogdb"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsPost()">Execute</button>
+                    <div id="res-admin-conns-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-post">Status: -</span><span id="time-admin-conns-post">0ms</span></div>
+                        <pre id="body-admin-conns-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">PUT</span> /api/admin/connections/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>label</td><td>string</td><td>New descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>New ClickHouse host</td></tr>
+                            <tr><td>username</td><td>string</td><td>New username</td></tr>
+                            <tr><td>password</td><td>string</td><td>New password (optional, keep empty to retain existing)</td></tr>
+                            <tr><td>database</td><td>string</td><td>New database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-conns-put" rows="9">{
+  "id": 2,
+  "label": "Wavecomm",
+  "host": "http://10.202.1.206:8123",
+  "username": "default",
+  "password": "",
+  "database": "syslogdb"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsPut()">Execute</button>
+                    <div id="res-admin-conns-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-put">Status: -</span><span id="time-admin-conns-put">0ms</span></div>
+                        <pre id="body-admin-conns-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post" style="background: #ff4d4f">DELETE</span> /api/admin/connections/{id}
+                </div>
+            </div>
+            <div class="description">Delete a ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-conns-del" rows="3">{
+  "id": 1
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsDel()">Execute</button>
+                    <div id="res-admin-conns-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-del">Status: -</span><span id="time-admin-conns-del">0ms</span></div>
+                        <pre id="body-admin-conns-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN - USERS -->
+        <div id="admin-users-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/users
+                </div>
+            </div>
+            <div class="description">Lists all users. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>User ID</td></tr>
+                            <tr><td>username</td><td>string</td><td>Username</td></tr>
+                            <tr><td>role</td><td>string</td><td>User role: 'admin' or 'user'</td></tr>
+                            <tr><td>created_at</td><td>ISO8601</td><td>Creation timestamp</td></tr>
+                            <tr><td>connectionIds</td><td>array</td><td>List of assigned connection IDs</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminUsersGet()">Execute</button>
+                    <div id="res-admin-users-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-get">Status: -</span><span id="time-admin-users-get">0ms</span></div>
+                        <pre id="body-admin-users-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/users
+                </div>
+            </div>
+            <div class="description">Create a new user. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>username</td><td>string</td><td>Username</td></tr>
+                            <tr><td>password</td><td>string</td><td>Plain text password (will be hashed)</td></tr>
+                            <tr><td>role</td><td>string</td><td>'admin' or 'user'</td></tr>
+                            <tr><td>connectionIds</td><td>array/int</td><td>Array of connection IDs to assign (or single ID). Optional.</td>></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-users-post" rows="10">{
+  "username": "newuser",
+  "password": "secure-password",
+  "role": "user",
+  "connectionIds": [1]
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersPost()">Execute</button>
+                    <div id="res-admin-users-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-post">Status: -</span><span id="time-admin-users-post">0ms</span></div>
+                        <pre id="body-admin-users-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">PUT</span> /api/admin/users/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing user. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>username</td><td>string</td><td>New username</td></tr>
+                            <tr><td>password</td><td>string</td><td>New password (optional, keep empty to retain existing)</td></tr>
+                            <tr><td>role</td><td>string</td><td>'admin' or 'user'</td></tr>
+                            <tr><td>connectionIds</td><td>array/int</td><td>Array of connection IDs to assign (or single ID). Optional.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-users-put" rows="11">{
+  "id": 1,
+  "username": "updateduser",
+  "password": "",
+  "role": "admin",
+  "connectionIds": [1, 2]
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersPut()">Execute</button>
+                    <div id="res-admin-users-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-put">Status: -</span><span id="time-admin-users-put">0ms</span></div>
+                        <pre id="body-admin-users-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post" style="background: #ff4d4f">DELETE</span> /api/admin/users/{id}
+                </div>
+            </div>
+            <div class="description">Delete a user. Admin only.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-users-del" rows="3">{
+  "id": 1
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersDel()">Execute</button>
+                    <div id="res-admin-users-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-del">Status: -</span><span id="time-admin-users-del">0ms</span></div>
+                        <pre id="body-admin-users-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showSection(id) {
+            document.querySelectorAll('.endpoint-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+            const section = document.getElementById(id);
+            if (!section) return;
+            section.classList.add('active');
+
+            const navItem = document.querySelector(`.nav-item[onclick="showSection('${id}')"]`);
+            if (navItem) navItem.classList.add('active');
+        }
+
+        function toggleJson(id) {
+            const preview = document.getElementById(`preview-${id}`);
+            preview.classList.toggle('hidden');
+        }
+
+        function loadSample(id) {
+            const samples = {
+                query: {
+                    connectionIds: "0",
+                    filters: {
+                        dateFrom: "2026-05-10",
+                        srcIp: "192.168.1.1",
+                        dstIp: "8.8.8.8",
+                        protocol: "TCP"
+                    },
+                    page: 1,
+                    pageSize: 50,
+                    sortColumn: "timestamp",
+                    sortOrder: "DESC"
+                },
+                stats: {
+                    connectionIds: "0",
+                    filters: {
+                        dateFrom: "2026-05-01",
+                        dateTo: "2026-05-14",
+                        protocol: "UDP"
+                    }
+                }
+            };
+            const el = document.getElementById(`req-${id}`);
+            if (el) el.value = JSON.stringify(samples[id], null, 2);
+        }
+
+        async function callApi(endpoint, method = 'GET', body = null) {
+            const start = performance.now();
+            try {
+                const token = document.getElementById('api-token').value;
+                if (!token) {
+                    throw new Error('Missing Bearer Token. Please paste your JWT in the sidebar.');
+                }
+
+                const options = { method };
+                const headers = { 'Content-Type': 'application/json' };
+                headers['Authorization'] = `Bearer ${token}`;
+                options.headers = headers;
+
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                const res = await fetch(endpoint, options);
+
+                let data;
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    const text = await res.text();
+                    if (text.trim().startsWith('<')) {
+                        throw new Error(`Server returned HTML error page (${res.status}). Check server logs.`);
+                    }
+                    try {
+                        data = JSON.parse(text);
+                    } catch {
+                        data = { text: text };
+                    }
+                }
+                const duration = (performance.now() - start).toFixed(2);
+                return { status: res.status, data, duration };
+            } catch (err) {
+                return { status: 'Error', data: { error: err.message }, duration: 0 };
+            }
+        }
+
+        function renderRes(id, result) {
+            const area = document.getElementById(`res-${id}`);
+            area.classList.remove('hidden');
+            document.getElementById(`stat-${id}`).textContent = `Status: ${result.status}`;
+            document.getElementById(`time-${id}`).textContent = `${result.duration}ms`;
+            document.getElementById(`body-${id}`).textContent = JSON.stringify(result.data, null, 2);
+        }
+
+        async function execHealth() {
+            const btn = document.querySelector(`#health .btn-execute`); // Wait, health button doesn't have id. I'll use querySelector.
+            // I should add IDs to all buttons or just use a generic selector.
+            const params = document.getElementById('req-health-params').value;
+            const res = await callApi(`/api/health?${params}`);
+            renderRes('health', res);
+        }
+        async function execColumns() {
+            const params = document.getElementById('req-columns-params').value;
+            const res = await callApi(`/api/columns?${params}`);
+            renderRes('columns', res);
+        }
+
+        async function execQuery() {
+            const btn = document.getElementById('btn-query');
+            btn.disabled = true;
+            btn.textContent = 'Executing...';
+
+            try {
+                const body = JSON.parse(document.getElementById('req-query').value);
+                const res = await callApi('/api/query', 'POST', body);
+                renderRes('query', res);
+            } catch (err) {
+                renderRes('query', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Execute';
+            }
+        }
+
+        async function execStats() {
+            const btn = document.getElementById('btn-stats');
+            btn.disabled = true;
+            btn.textContent = 'Executing...';
+
+            try {
+                const body = JSON.parse(document.getElementById('req-stats').value);
+                const res = await callApi('/api/stats', 'POST', body);
+                renderRes('stats', res);
+            } catch (err) {
+                renderRes('stats', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Execute';
+            }
+        }
+
+        // ── Admin Connections ─────────────────────────────────────────────
+        async function execAdminConnsGet() {
+            const res = await callApi('/api/admin/connections');
+            renderRes('admin-conns-get', res);
+        }
+
+        async function execAdminConnsPost() {
+            const body = JSON.parse(document.getElementById('req-admin-conns-post').value);
+            const res = await callApi('/api/admin/connections', 'POST', body);
+            renderRes('admin-conns-post', res);
+        }
+
+        async function execAdminConnsPut() {
+            const body = JSON.parse(document.getElementById('req-admin-conns-put').value);
+            const id = body.id;
+            if (!id) {
+                alert('Connection ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/connections/${id}`, 'PUT', body);
+            renderRes('admin-conns-put', res);
+        }
+
+        async function execAdminConnsDel() {
+            const body = JSON.parse(document.getElementById('req-admin-conns-del').value);
+            const id = body.id;
+            if (!id) {
+                alert('Connection ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/connections/${id}`, 'DELETE');
+            renderRes('admin-conns-del', res);
+        }
+
+        // ── Admin Users ───────────────────────────────────────────────────
+        async function execAdminUsersGet() {
+            const res = await callApi('/api/admin/users');
+            renderRes('admin-users-get', res);
+        }
+
+        async function execAdminUsersPost() {
+            const body = JSON.parse(document.getElementById('req-admin-users-post').value);
+            const res = await callApi('/api/admin/users', 'POST', body);
+            renderRes('admin-users-post', res);
+        }
+
+        async function execAdminUsersPut() {
+            const body = JSON.parse(document.getElementById('req-admin-users-put').value);
+            const id = body.id;
+            if (!id) {
+                alert('User ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/users/${id}`, 'PUT', body);
+            renderRes('admin-users-put', res);
+        }
+
+        async function execAdminUsersDel() {
+            const body = JSON.parse(document.getElementById('req-admin-users-del').value);
+            const id = body.id;
+            if (!id) {
+                alert('User ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/users/${id}`, 'DELETE');
+            renderRes('admin-users-del', res);
+        }
+    </script>
+</body>
+</html>

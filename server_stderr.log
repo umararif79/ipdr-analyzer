@@ -1,0 +1,162 @@
+[2026-05-10T05:53:37.211Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: 'd0de2ed1-fe14-48c3-9239-6613b2eb760e',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:1',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:1',
+  event: 'end'
+}
+[2026-05-10T05:53:37.214Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: 'd0de2ed1-fe14-48c3-9239-6613b2eb760e',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:1',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:1',
+  event: 'close'
+}
+[2026-05-10T05:53:37.216Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'edb9866b-741d-400b-a03a-a23257dde274',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:1',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:1',
+  event: 'end'
+}
+[2026-05-10T05:53:37.216Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: '4fe55bef-fcb2-4dc6-b0d0-4cfe4d709461',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:1',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:1',
+  event: 'end'
+}
+[2026-05-10T05:53:37.217Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: '4fe55bef-fcb2-4dc6-b0d0-4cfe4d709461',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:1',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:1',
+  event: 'close'
+}
+[2026-05-10T05:53:37.218Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'edb9866b-741d-400b-a03a-a23257dde274',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:1',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:1',
+  event: 'close'
+}
+[2026-05-10T05:53:58.986Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: 'd3666ba5-89a3-48ac-bd82-a63b710d36f4',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:2',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:2',
+  event: 'end'
+}
+[2026-05-10T05:53:58.987Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: '7b13669e-e4d1-4ad2-95c5-142419d9b4db',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:2',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:2',
+  event: 'end'
+}
+[2026-05-10T05:53:59.002Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: '7b13669e-e4d1-4ad2-95c5-142419d9b4db',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:2',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:2',
+  event: 'close'
+}
+[2026-05-10T05:53:59.003Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: 'd3666ba5-89a3-48ac-bd82-a63b710d36f4',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:2',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:2',
+  event: 'close'
+}
+[2026-05-10T05:53:59.004Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'cebaab39-a0ff-46ea-ac32-e17654887b94',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:2',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:2',
+  event: 'end'
+}
+[2026-05-10T05:53:59.005Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'cebaab39-a0ff-46ea-ac32-e17654887b94',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:2',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:2',
+  event: 'close'
+}
+[2026-05-10T05:54:06.994Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: '230ff041-6315-448b-8793-14b0b52c340c',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:3',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:3',
+  event: 'end'
+}
+[2026-05-10T05:54:06.997Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'dc8cb010-7e8f-425d-8117-be09b491099f',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:3',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:3',
+  event: 'end'
+}
+[2026-05-10T05:54:06.998Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d',
+  query_id: 'dc8cb010-7e8f-425d-8117-be09b491099f',
+  request_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:3',
+  socket_id: 'a9cc84ac-7373-471a-8ff6-2b1637f8031d:3',
+  event: 'close'
+}
+[2026-05-10T05:54:06.999Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: '1824db98-d993-4800-8cb9-66e5cf30317c',
+  query_id: '230ff041-6315-448b-8793-14b0b52c340c',
+  request_id: '1824db98-d993-4800-8cb9-66e5cf30317c:3',
+  socket_id: '1824db98-d993-4800-8cb9-66e5cf30317c:3',
+  event: 'close'
+}
+[2026-05-10T05:54:07.000Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: 'e0800051-11d8-4d85-ac4b-5b48f420b188',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:3',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:3',
+  event: 'end'
+}
+[2026-05-10T05:54:07.001Z][WARN][@clickhouse/client][Connection] Query: socket was closed or ended before the response was fully read. This can potentially result in an uncaught ECONNRESET error! Consider fully consuming, draining, or destroying the response stream. 
+Arguments: {
+  operation: 'Query',
+  connection_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2',
+  query_id: 'e0800051-11d8-4d85-ac4b-5b48f420b188',
+  request_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:3',
+  socket_id: 'f195a8e5-393a-4091-9404-6351d8e41fa2:3',
+  event: 'close'
+}

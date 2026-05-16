@@ -1,0 +1,10 @@
+
+  🔒 IPDR API Server running on http://localhost:3001
+  📊 ClickHouse: http://10.202.1.206:8123
+  📁 Database:   syslogdb
+  👁  View:       view_parsed_logs
+
+[HTTP] GET /api/health
+[HTTP] GET /api/health
+[HTTP] GET /api/health
+[HTTP] GET /api/health

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IPDR Log Analyzer — Enterprise ISP Monitoring</title>
+  <meta name="description" content="Enterprise-grade Internet Protocol Detail Record analyzer for ISP surfing log monitoring, forensics, and compliance." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- ── Top Bar ──────────────────────────────────────────────── -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+          <path d="M8 16h4l3-8 5 16 3-8h4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32">
+              <stop stop-color="#3b82f6"/>
+              <stop offset="1" stop-color="#8b5cf6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div>
+          <h1>IPDR Log Analyzer</h1>
+          <span class="header-subtitle">Internet Protocol Detail Records</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="connection-status" class="connection-badge disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking...</span>
+      </div>
+      <div class="header-meta">
+        <span id="db-name" class="meta-chip">syslogdb</span>
+        <span id="view-name" class="meta-chip">view_parsed_logs</span>
+      </div>
+      <button id="btn-settings" class="btn btn-icon" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 12a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.5"/><path d="M14.5 9a5.5 5.5 0 01-11 0 5.5 5.5 0 0111 0z" stroke="currentColor" stroke-width="1.5" opacity="0.3"/><path d="M9 1.5v1.5M9 15v1.5M1.5 9h1.5M15 9h1.5M3.7 3.7l1.1 1.1M13.2 13.2l1.1 1.1M3.7 14.3l1.1-1.1M13.2 4.8l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <button id="btn-admin" class="btn btn-secondary hidden" title="Admin Panel">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Admin
+      </button>
+      <button id="btn-export-csv" class="btn btn-secondary" title="Export to CSV">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2M8 2v9M5 8l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Export CSV
+      </button>
+      <button id="btn-refresh" class="btn btn-primary" title="Refresh Data">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 1v5h5M15 15v-5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 6A6 6 0 003 3.5L1 6M2.5 10a6 6 0 0010.5 2.5L15 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+      <button id="btn-logout" class="btn btn-ghost" title="Logout">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 8a2 2 0 10-2 2 2 2 0 002-2zM1 5.828a1 1 0 01.707-.707l11.172 5.172a1 1 0 010 1.414l-11.172 5.172a1 1 0 01-1.414 0L1 10.586z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Settings Modal ────────────────────────────────────────── -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 12a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.5"/><path d="M14.5 9a5.5 5.5 0 01-11 0 5.5 5.5 0 0111 0z" stroke="currentColor" stroke-width="1.5" opacity="0.3"/></svg>
+          User Settings
+        </h2>
+        <button id="btn-close-settings" class="btn btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="tab-appearance">Appearance</button>
+          <button class="tab-btn" data-tab="tab-columns">Columns</button>
+          <button class="tab-btn" data-tab="tab-user">User & Security</button>
+          <button class="tab-btn" data-tab="tab-global">Global Params</button>
+        </div>
+        <div class="tab-content active" id="tab-appearance">
+          <div class="settings-group">
+            <label>Theme</label>
+            <div class="theme-grid">
+              <button class="theme-opt active" data-theme="dark">Dark</button>
+              <button class="theme-opt" data-theme="light">Light</button>
+              <button class="theme-opt" data-theme="midnight">Midnight</button>
+              <button class="theme-opt" data-theme="cyber">Cyber</button>
+            </div>
+          </div>
+          <div class="settings-group">
+            <label>Auto-Refresh (minutes)</label>
+            <input type="number" id="setting-refresh" min="0" max="60" value="0" />
+          </div>
+        </div>
+        <div class="tab-content" id="tab-columns">
+          <p class="text-muted" style="margin-bottom:12px">Toggle columns to show/hide in the main table.</p>
+          <div id="column-list" class="column-list">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+        <div class="tab-content" id="tab-user">
+          <div class="settings-group">
+            <label>User Role</label>
+            <select id="setting-role">
+              <option value="user">User (Read-only)</option>
+              <option value="admin">Administrator (Full Access)</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label>Username</label>
+            <input type="text" id="setting-username" value="default_user" disabled />
+            <span class="text-muted" style="font-size:0.7rem">Assigned rights are based on this user.</span>
+          </div>
+        </div>
+        <div class="tab-content" id="tab-global">
+          <div class="settings-group">
+            <label>Organization Name</label>
+            <input type="text" id="setting-org" placeholder="e.g. ISP Core" />
+          </div>
+          <div class="settings-group">
+            <label>Max Export Rows</label>
+            <input type="number" id="setting-export-limit" value="100000" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main Content ─────────────────────────────────────────── -->
+  <main id="app-main">
+    <!-- Analytics Header -->
+    <div class="analytics-header">
+      <div class="analytics-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 16l4-4 4 4 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Analytics Overview
+      </div>
+      <div class="period-selector">
+      <button class="btn btn-period active" data-period="today">Today</button>
+      <button class="btn btn-period" data-period="yesterday">Yesterday</button>
+      <button class="btn btn-period" data-period="last-week">Last Week</button>
+    </div>
+    </div>
+
+    <!-- Dashboard Stats -->
+    <section id="dashboard-section" class="dashboard-grid"></section>
+
+    <!-- Filters -->
+    <section id="filter-section" class="glass-panel">
+      <div class="section-header">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1.5 3h15M4.5 8.25h9M7.5 13.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Filters
+        </h2>
+        <div class="filter-actions">
+          <div class="connection-select-wrap">
+            <label>Connection</label>
+            <select id="filter-connection"></select>
+          </div>
+          <button id="btn-search" class="btn btn-primary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Search
+          </button>
+          <button id="btn-reset" class="btn btn-ghost btn-sm">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1v4h4M13 13V9H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.7 5A5.5 5.5 0 002.8 3.2L1 5M2.3 9a5.5 5.5 0 008.9 1.8L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Reset
+          </button>
+        </div>
+        <div id="query-preview" class="query-preview hidden"></div>
+      </div>
+      <div id="filter-grid" class="filter-grid"></div>
+    </section>
+
+    <!-- Data Table -->
+    <section id="table-section" class="glass-panel">
+      <div class="section-header">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1.5" y="1.5" width="15" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 6.5h15M1.5 11.5h15M6.5 6.5v9M11.5 6.5v9" stroke="currentColor" stroke-width="1.5"/></svg>
+          Records
+        </h2>
+        <div id="table-info" class="table-info"></div>
+      </div>
+      <div id="table-container" class="table-container">
+        <div id="table-loading" class="table-loading">
+          <div class="spinner"></div>
+          <span>Loading records...</span>
+        </div>
+        <table id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+        <div id="table-empty" class="table-empty hidden">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="4" y="8" width="40" height="32" rx="4" stroke="currentColor" stroke-width="2"/><path d="M4 16h40M16 16v24M32 16v24" stroke="currentColor" stroke-width="2"/><path d="M20 28h8M20 34h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/></svg>
+          <p>No records found matching your filters</p>
+        </div>
+      </div>
+      <!-- Pagination -->
+      <div id="pagination" class="pagination">
+        <div class="pagination-left">
+          <label>Rows per page</label>
+          <select id="page-size-select">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+          </select>
+        </div>
+        <div class="pagination-center">
+          <button id="btn-first-page" class="btn btn-icon" title="First Page">⟪</button>
+          <button id="btn-prev-page" class="btn btn-icon" title="Previous Page">◀</button>
+          <span id="page-indicator" class="page-indicator">Page 1 of 1</span>
+          <button id="btn-next-page" class="btn btn-icon" title="Next Page">▶</button>
+          <button id="btn-last-page" class="btn btn-icon" title="Last Page">⟫</button>
+        </div>
+        <div class="pagination-right">
+          <span id="total-records" class="total-records">0 records</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Admin Section ─────────────────────────────────────────────── -->
+  <div id="admin-panel" class="modal-overlay hidden">
+    <div class="modal-content glass-panel" style="max-width: 90vw; width: 1200px;">
+      <div class="modal-header">
+        <h2><i class="fas fa-user-shield"></i> Administration Panel</h2>
+        <button id="btn-close-admin" class="btn btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="admin-tabs">
+          <button class="tab-btn active" data-tab="admin-conns">Connections</button>
+          <button class="tab-btn" data-tab="admin-users">Users</button>
+          <button class="tab-btn" data-tab="admin-settings">Settings</button>
+        </div>
+
+        <div class="tab-content active" id="admin-conns">
+          <div class="section-header" style="display:flex; justify-content: space-between; align-items: center;">
+            <h3>ClickHouse Connections</h3>
+            <button id="btn-add-conn" class="btn btn-primary btn-sm">Add Connection</button>
+          </div>
+          <div id="conn-list-container" class="table-container">
+            <table id="conn-table" class="admin-table">
+              <thead>
+                <tr><th class="text-left">Label</th><th class="text-left">Host</th><th class="text-left">DB</th><th class="text-right">Actions</th></tr>
+              </thead>
+              <tbody id="conn-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-content" id="admin-users">
+          <div class="section-header" style="display:flex; justify-content: space-between; align-items: center;">
+            <h3>User Management</h3>
+            <button id="btn-add-user" class="btn btn-primary btn-sm">Add User</button>
+          </div>
+          <div id="user-list-container" class="table-container">
+            <table id="user-table" class="admin-table">
+              <thead>
+                <tr><th class="text-left">Username</th><th class="text-left">Role</th><th class="text-left">Connection</th><th class="text-right">Actions</th></tr>
+              </thead>
+              <tbody id="user-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="tab-content" id="admin-settings">
+          <div class="section-header">
+            <h3>System Settings</h3>
+          </div>
+          <div class="settings-group" style="max-width: 400px; margin-top: 20px;">
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+              <input type="checkbox" id="setting-debug-mode">
+              Enable Debug SQL Preview
+            </label>
+            <p class="text-muted" style="font-size:0.8rem; margin-top:8px">
+              Shows the generated SQL query in the main table view. Useful for debugging but can be noisy.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Connection Form Modal ────────────────────────────────────── -->
+  <div id="conn-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel" style="max-width: 500px;">
+      <div class="modal-header"><h2>Connection Details</h2><button class="btn btn-icon close-modal">✕</button></div>
+      <div class="modal-body">
+        <div class="settings-group"><label>Label</label><input type="text" id="conn-label" placeholder="e.g. Production Cluster"></div>
+        <div class="settings-group"><label>Host (URL)</label><input type="text" id="conn-host" placeholder="http://10.x.x.x:8123"></div>
+        <div class="settings-group"><label>Username</label><input type="text" id="conn-user"></div>
+        <div class="settings-group"><label>Password</label><input type="password" id="conn-pass"></div>
+        <div class="settings-group"><label>Database</label><input type="text" id="conn-db"></div>
+      </div>
+      <div class="modal-footer"><button id="btn-save-conn" class="btn btn-primary">Save Connection</button></div>
+    </div>
+  </div>
+
+  <!-- ── User Form Modal ──────────────────────────────────────────── -->
+  <div id="user-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel" style="max-width: 500px;">
+      <div class="modal-header"><h2>User Details</h2><button class="btn btn-icon close-modal">✕</button></div>
+      <div class="modal-body">
+        <div class="settings-group"><label>Username</label><input type="text" id="user-username"></div>
+        <div class="settings-group"><label>Password</label><input type="password" id="user-password"></div>
+        <div class="settings-group"><label>Role</label>
+          <select id="user-role"><option value="user">User</option><option value="admin">Admin</option></select>
+        </div>
+        <div class="settings-group"><label>Assign ClickHouse Connection</label>
+          <select id="user-conn-select" multiple></select>
+        </div>
+      </div>
+      <div class="modal-footer"><button id="btn-save-user" class="btn btn-primary">Save User</button></div>
+    </div>
+  </div>
+
+  <!-- ── Toast Container ──────────────────────────────────────── -->
+  <div id="toast-container"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

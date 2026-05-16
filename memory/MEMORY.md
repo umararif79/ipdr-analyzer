@@ -1,0 +1,6 @@
+- [Project Overview](project_overview.md) — Architecture, tech stack, and core purpose.
+- [Auth & Multitenancy](auth_system.md) — SQLite local DB, JWT auth, and dynamic ClickHouse connections.
+- [API Docs Tester](api_docs.md) — Implementation of the interactive Swagger-style tester.
+- [Admin API Endpoints](api_admin_endpoints.md) — Complete testing playgrounds for connections and users management.
+- [Performance Optimizations](performance_optimizations.md) — API query and pagination optimizations for ClickHouse.
+- [Debug Visibility](debug_visibility.md) — Implementation of SQL query preview in UI.

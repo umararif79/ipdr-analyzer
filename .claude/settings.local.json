@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "PowerShell(node \"E:\\\\VS Projects\\\\IPDR\\\\migration.js\")",
+      "Bash(powershell *)",
+      "PowerShell(curl *)",
+      "Bash(Get-Content *)",
+      "Bash(curl *)"
+    ]
+  }
+}
