@@ -67,6 +67,27 @@ async function loadSystemSettings() {
         }
       };
     }
+
+    const periodSetting = settings.find(s => s.key === 'stats_period');
+    const periodSelect = document.getElementById('setting-stats-period');
+    if (periodSelect) {
+      periodSelect.value = periodSetting ? periodSetting.value : 'today';
+      periodSelect.onchange = async () => {
+        try {
+          await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
+            },
+            body: JSON.stringify({ key: 'stats_period', value: periodSelect.value })
+          });
+          showToast('Stats period updated', 'success');
+        } catch (e) {
+          showToast('Failed to update stats period', 'error');
+        }
+      };
+    }
   } catch (err) {
     console.error('Failed to load system settings:', err);
   }

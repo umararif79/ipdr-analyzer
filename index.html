@@ -9,6 +9,85 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    /* Animated Rank Widget Styles */
+    .rank-widget {
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 0.2s ease;
+      height: 140px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+    .rank-widget:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    }
+    .rank-widget .rank-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .rank-widget .rank-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .rank-widget .rank-count {
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: var(--accent-color);
+      opacity: 0.8;
+    }
+    .rank-widget .rank-number {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--accent-color);
+      opacity: 0.5;
+    }
+    .rank-widget .expanded-list {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--bg-secondary);
+      z-index: 10;
+      padding: 15px;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow-y: auto;
+      font-size: 0.8rem;
+    }
+    .rank-widget.expanded .expanded-list {
+      transform: translateY(0);
+    }
+    .rank-widget .close-expanded {
+      position: absolute;
+      top: 5px; right: 5px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .rank-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border-default);
+    }
+    .rank-item .rank-pos { color: var(--accent-color); font-weight: bold; margin-right: 8px; }
+
+    /* Animation for Rotating Items */
+    .fade-out { opacity: 0; transform: translateY(-10px); }
+    .fade-in { opacity: 1; transform: translateY(0); }
+  </style>
 </head>
 <body>
   <!-- ── Top Bar ──────────────────────────────────────────────── -->
@@ -279,6 +358,19 @@
             <p class="text-muted" style="font-size:0.8rem; margin-top:8px">
               Shows the generated SQL query in the main table view. Useful for debugging but can be noisy.
             </p>
+            <div class="settings-group" style="margin-top:20px">
+              <label>Stats Default Period</label>
+              <select id="setting-stats-period" style="width:100%; padding:8px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-default); border-radius:var(--radius-sm)">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="last-week">Last Week</option>
+                <option value="last-month">Last Month</option>
+                <option value="last-quarter">Last Quarter</option>
+              </select>
+              <p class="text-muted" style="font-size:0.8rem; margin-top:8px">
+                Limits the time range for dashboard widgets to reduce ClickHouse load.
+              </p>
+            </div>
           </div>
         </div>
       </div>

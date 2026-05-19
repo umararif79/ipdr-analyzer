@@ -8,6 +8,7 @@ import path from 'path';
 import bcrypt from 'bcryptjs';
 import db from './localdb.js';
 import { generateToken, authMiddleware, adminMiddleware } from './auth.js';
+import { encrypt, decrypt } from './crypto.js';
 
 const LOG_FILE = path.join(process.cwd(), 'server_debug.log');
 
@@ -278,6 +279,42 @@ function escapeString(val) {
   return val.replace(/'/g, "''");
 }
 
+function getPeriodDateRange(period) {
+  const now = new Date();
+  const formatDate = (d) => d.toISOString().slice(0, 10);
+
+  let start = new Date(now);
+  let end = new Date(now);
+
+  switch (period) {
+    case 'today':
+      break;
+    case 'yesterday':
+      start.setDate(now.getDate() - 1);
+      end.setDate(now.getDate() - 1);
+      break;
+    case 'last-week':
+      start.setDate(now.getDate() - 7);
+      break;
+    case 'last-month':
+      // Use a robust way to subtract a month to avoid the 31st-to-30th bug
+      start.setMonth(now.getMonth() - 1);
+      if (start.getDate() !== now.getDate()) {
+        start.setDate(0);
+      }
+      break;
+    case 'last-quarter':
+      start.setMonth(now.getMonth() - 3);
+      if (start.getDate() !== now.getDate()) {
+        start.setDate(0);
+      }
+      break;
+    default:
+      return null;
+  }
+  return { datefrom: formatDate(start), dateto: formatDate(end) };
+}
+
 function buildWhereClause(filters, connectionId) {
   const conditions = [];
   const cols = cachedColumns.get(connectionId) || [];
@@ -496,36 +533,66 @@ app.post('/api/export', authMiddleware, async (req, res) => {
 app.post('/api/stats', authMiddleware, async (req, res) => {
   try {
     const { filters = {} } = req.body;
+
+    // Override stats filters with the global system period setting only as a fallback
+    const modifiedFilters = { ...filters };
+    if (!modifiedFilters.datefrom || !modifiedFilters.dateto) {
+      const statsPeriod = await getSystemSetting('stats_period', 'today');
+      const periodRange = getPeriodDateRange(statsPeriod);
+      if (periodRange) {
+        modifiedFilters.datefrom = modifiedFilters.datefrom || periodRange.datefrom;
+        modifiedFilters.dateto = modifiedFilters.dateto || periodRange.dateto;
+        writeLog(`[Stats] Applying global period [${statsPeriod}] as fallback: ${periodRange.datefrom} to ${periodRange.dateto}`);
+      }
+    }
+
     const activeIds = await resolveActiveConnections(req);
     const allStats = await Promise.all(activeIds.map(async (connId) => {
-      const { where, params } = buildWhereClause(filters, connId);
+      const { where, params } = buildWhereClause(modifiedFilters, connId);
       const viewName = getFullyQualifiedView(connId);
       const srcIpCol = resolveColumn('src_ip', connId) || 'src_ip';
       const dstIpCol = resolveColumn('dst_ip', connId) || 'dest_ip';
       const tsCol = resolveColumn('timestamp', connId) || 'log_datetime';
       writeLog(`[Stats Debug] Connection: ${connId}, tsCol: ${tsCol}`);
 
-      // Ensure we use a DateTime column for toHour, as log_date (Date type) will fail.
       const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;
-
       const protoCol = resolveColumn('protocol', connId) || 'proto';
       const client = await getClickHouseClient(connId);
       const controller = new AbortController();
-      const queries = [
-        client.query({ query: `SELECT count() as total_records, uniq(${srcIpCol}) as unique_sources, uniq(${dstIpCol}) as unique_destinations FROM ${viewName} ${where}`, format: 'JSON', abort_signal: controller.signal }),
-        client.query({ query: `SELECT toString(${protoCol}) as protocol, count() as cnt FROM ${viewName} ${where} GROUP BY protocol ORDER BY cnt DESC LIMIT 10`, format: 'JSON', abort_signal: controller.signal }),
-        client.query({ query: `SELECT toString(${dstIpCol}) as dst_ip, count() as cnt FROM ${viewName} ${where} GROUP BY dst_ip ORDER BY cnt DESC LIMIT 10`, format: 'JSON', abort_signal: controller.signal }),
+
+      const queryDefs = [
+        { key: 'summary', sql: `SELECT count() as total_records, uniq(${srcIpCol}) as unique_sources, uniq(${dstIpCol}) as unique_destinations FROM ${viewName} ${where}` },
+        { key: 'bras', sql: `SELECT d.bras, ifNull(t.total_logs, 0) AS cnt FROM (SELECT DISTINCT device_label AS bras FROM ${viewName}) AS d LEFT JOIN (SELECT device_label AS bras, count(*) AS total_logs FROM ${viewName} ${where} GROUP BY device_label) AS t ON d.bras = t.bras ORDER BY cnt DESC LIMIT 10` },
+        { key: 'dest', sql: `SELECT toString(${dstIpCol}) as dst_ip, count() as cnt FROM ${viewName} ${where} GROUP BY dst_ip ORDER BY cnt DESC LIMIT 10` },
+        { key: 'country', sql: `SELECT toString(country) as country, count() as cnt FROM ${viewName} ${where} GROUP BY country ORDER BY cnt DESC LIMIT 10` },
+        { key: 'app', sql: `SELECT toString(application) as application, count() as cnt FROM ${viewName} ${where} GROUP BY application ORDER BY cnt DESC LIMIT 10` },
+        { key: 'org', sql: `SELECT toString(organization) as organization, count() as cnt FROM ${viewName} ${where} GROUP BY organization ORDER BY cnt DESC LIMIT 10` },
+        { key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} WHERE log_date >= toDate(now() - interval 7 day) GROUP BY log_date, bras ORDER BY log_date ASC` },
       ];
       if (hourlyCol) {
-        queries.push(client.query({ query: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour`, format: 'JSON', abort_signal: controller.signal }));
+        queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
       }
-      const results = await Promise.all(queries);
-      const jsonResults = await Promise.all(results.map(r => r.json()));
+
+      const results = [];
+      for (const def of queryDefs) {
+        try {
+          const res = await client.query({ query: def.sql, format: 'JSON', abort_signal: controller.signal });
+          results.push(await res.json());
+        } catch (e) {
+          writeLog(`[Stats Error] Conn: ${connId}, Query: ${def.key}, Error: ${e.message}`);
+          results.push({ data: [] });
+        }
+      }
+
       return {
-        summary: jsonResults[0].data[0] || {},
-        protocols: jsonResults[1].data || [],
-        topDestinations: jsonResults[2].data || [],
-        hourlyTraffic: tsCol ? (jsonResults[3]?.data || []) : [],
+        summary: results[0]?.data[0] || {},
+        brasDistribution: results[1]?.data || [],
+        brasDailyDistribution: results[6]?.data || [],
+        topDestinations: results[2]?.data || [],
+        topCountries: results[3]?.data || [],
+        topApps: results[4]?.data || [],
+        topOrgs: results[5]?.data || [],
+        hourlyTraffic: (hourlyCol && results[7]) ? results[7].data : [],
       };
     }));
     const finalSummary = { total_records: 0, unique_sources: 0, unique_destinations: 0 };
@@ -534,22 +601,57 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
       finalSummary.unique_sources += (s.summary.unique_sources || 0);
       finalSummary.unique_destinations += (s.summary.unique_destinations || 0);
     });
-    const mergeProtocols = allStats.flatMap(s => s.protocols).reduce((acc, item) => {
-      acc[item.protocol] = (acc[item.protocol] || 0) + item.cnt;
+    const mergeBras = allStats.flatMap(s => s.brasDistribution).reduce((acc, item) => {
+      acc[item.bras] = (acc[item.bras] || 0) + item.cnt;
       return acc;
     }, {});
-    const finalProtocols = Object.entries(mergeProtocols).map(([protocol, cnt]) => ({ protocol, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+    const finalBras = Object.entries(mergeBras).map(([bras, cnt]) => ({ bras, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+
+    const mergeBrasDaily = allStats.flatMap(s => s.brasDailyDistribution).reduce((acc, item) => {
+      const dateKey = item.log_date;
+      if (!acc[dateKey]) acc[dateKey] = {};
+      acc[dateKey][item.bras] = (acc[dateKey][item.bras] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const finalBrasDaily = Object.entries(mergeBrasDaily).map(([date, brasMap]) => ({
+      date,
+      data: brasMap
+    })).sort((a, b) => a.date.localeCompare(b.date));
     const mergeDestinations = allStats.flatMap(s => s.topDestinations).reduce((acc, item) => {
       acc[item.dst_ip] = (acc[item.dst_ip] || 0) + item.cnt;
       return acc;
     }, {});
     const finalDestinations = Object.entries(mergeDestinations).map(([dst_ip, cnt]) => ({ dst_ip, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+    const mergeCountries = allStats.flatMap(s => s.topCountries).reduce((acc, item) => {
+      acc[item.country] = (acc[item.country] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const finalCountries = Object.entries(mergeCountries).map(([country, cnt]) => ({ country, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+    const mergeApps = allStats.flatMap(s => s.topApps).reduce((acc, item) => {
+      acc[item.application] = (acc[item.application] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const finalApps = Object.entries(mergeApps).map(([app, cnt]) => ({ application: app, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+    const mergeOrgs = allStats.flatMap(s => s.topOrgs).reduce((acc, item) => {
+      acc[item.organization] = (acc[item.organization] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const finalOrgs = Object.entries(mergeOrgs).map(([org, cnt]) => ({ organization: org, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
     const mergeTraffic = allStats.flatMap(s => s.hourlyTraffic).reduce((acc, item) => {
       acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
       return acc;
     }, {});
     const finalTraffic = Object.entries(mergeTraffic).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt })).sort((a, b) => a.hour - b.hour);
-    res.json({ summary: finalSummary, protocols: finalProtocols, topDestinations: finalDestinations, hourlyTraffic: finalTraffic });
+    res.json({
+      summary: finalSummary,
+      brasDistribution: finalBras,
+      brasDailyDistribution: finalBrasDaily,
+      topDestinations: finalDestinations,
+      topCountries: finalCountries,
+      topApps: finalApps,
+      topOrgs: finalOrgs,
+      hourlyTraffic: finalTraffic
+    });
   } catch (err) {
     if (err.name === 'AbortError') return;
     res.status(400).json({ error: err.message });
