@@ -1076,6 +1076,12 @@ td.cell-timestamp {
   height: 200px;
 }
 
+.heatmap-scroll-wrap {
+  height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 .chart-canvas-wrap canvas {
   width: 100% !important;
   height: 100% !important;
