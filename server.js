@@ -226,6 +226,55 @@ app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── User Personalization ──────────────────────────────────────────────
+
+app.get('/api/filters/favorites', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const favorites = db.prepare('SELECT * FROM favorite_filters WHERE user_id = ? ORDER BY created_at DESC', userId).all();
+    res.json(favorites);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/filters/favorites', authMiddleware, (req, res) => {
+  try {
+    const { name, filter_values } = req.body;
+    const userId = req.user.id;
+    if (!name || !filter_values) return res.status(400).json({ error: 'Name and filter_values are required' });
+    const result = db.prepare('INSERT INTO favorite_filters (user_id, name, filter_values) VALUES (?, ?, ?)')
+      .run(userId, name, JSON.stringify(filter_values));
+    res.json({ id: result.lastInsertRowid, message: 'Favorite filter saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/filters/favorites/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const result = db.prepare('DELETE FROM favorite_filters WHERE id = ? AND user_id = ?').run(id, userId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Favorite not found' });
+    res.json({ message: 'Favorite deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/preferences', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    res.json(pref || { dashboard_layout: null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/preferences', authMiddleware, (req, res) => {
+  try {
+    const { dashboard_layout } = req.body;
+    const userId = req.user.id;
+    db.prepare('INSERT OR REPLACE INTO user_preferences (user_id, dashboard_layout, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+      .run(userId, JSON.stringify(dashboard_layout));
+    res.json({ message: 'Preferences updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/admin/settings', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings').all();
@@ -297,7 +346,6 @@ function getPeriodDateRange(period) {
       start.setDate(now.getDate() - 7);
       break;
     case 'last-month':
-      // Use a robust way to subtract a month to avoid the 31st-to-30th bug
       start.setMonth(now.getMonth() - 1);
       if (start.getDate() !== now.getDate()) {
         start.setDate(0);
@@ -313,6 +361,20 @@ function getPeriodDateRange(period) {
       return null;
   }
   return { datefrom: formatDate(start), dateto: formatDate(end) };
+}
+
+function getPreviousPeriodDateRange(currentRange) {
+  if (!currentRange || !currentRange.datefrom || !currentRange.dateto) return null;
+  const start = new Date(currentRange.datefrom);
+  const end = new Date(currentRange.dateto);
+  const durationMs = end.getTime() - start.getTime() + 86400000;
+  const prevEnd = new Date(start);
+  prevEnd.setDate(start.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setTime(prevEnd.getTime() - durationMs + 86400000);
+
+  const formatDate = (d) => d.toISOString().slice(0, 10);
+  return { datefrom: formatDate(prevStart), dateto: formatDate(prevEnd) };
 }
 
 function buildWhereClause(filters, connectionId) {
@@ -530,11 +592,113 @@ app.post('/api/export', authMiddleware, async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
+async function fetchStatsForRange(activeIds, filters, range) {
+  const allStats = await Promise.all(activeIds.map(async (connId) => {
+    const modifiedFilters = { ...filters, ...range };
+    const { where } = buildWhereClause(modifiedFilters, connId);
+    const viewName = getFullyQualifiedView(connId);
+    const tsCol = resolveColumn('timestamp', connId) || 'log_datetime';
+    const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;
+    const client = await getClickHouseClient(connId);
+    const controller = new AbortController();
+
+    const queryDefs = [
+      { key: 'summary', sql: `SELECT count() as total_records, uniq(src_ip) as unique_sources, uniq(dest_ip) as unique_destinations FROM ${viewName} ${where}` },
+      { key: 'bras', sql: `SELECT d.bras, ifNull(t.total_logs, 0) AS cnt FROM (SELECT DISTINCT device_label AS bras FROM ${viewName}) AS d LEFT JOIN (SELECT device_label AS bras, count(*) AS total_logs FROM ${viewName} ${where} GROUP BY device_label) AS t ON d.bras = t.bras ORDER BY cnt DESC LIMIT 10` },
+      { key: 'dest', sql: `SELECT toString(dest_ip) as dst_ip, count() as cnt FROM ${viewName} ${where} GROUP BY dst_ip ORDER BY cnt DESC LIMIT 10` },
+      { key: 'country', sql: `SELECT toString(country) as country, count() as cnt FROM ${viewName} ${where} GROUP BY country ORDER BY cnt DESC LIMIT 10` },
+      { key: 'app', sql: `SELECT toString(application) as application, count() as cnt FROM ${viewName} ${where} GROUP BY application ORDER BY cnt DESC LIMIT 10` },
+      { key: 'org', sql: `SELECT toString(organization) as organization, count() as cnt FROM ${viewName} ${where} GROUP BY organization ORDER BY cnt DESC LIMIT 10` },
+      { key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} WHERE log_date >= toDate(now() - interval 7 day) GROUP BY log_date, bras ORDER BY log_date ASC` },
+    ];
+    if (hourlyCol) {
+      queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
+    }
+
+    const results = [];
+    for (const def of queryDefs) {
+      try {
+        const res = await client.query({ query: def.sql, format: 'JSON', abort_signal: controller.signal });
+        results.push(await res.json());
+      } catch (e) {
+        results.push({ data: [] });
+      }
+    }
+
+    return {
+      summary: results[0]?.data[0] || {},
+      brasDistribution: results[1]?.data || [],
+      brasDailyDistribution: results[6]?.data || [],
+      topDestinations: results[2]?.data || [],
+      topCountries: results[3]?.data || [],
+      topApps: results[4]?.data || [],
+      topOrgs: results[5]?.data || [],
+      hourlyTraffic: (hourlyCol && results[7]) ? results[7].data : [],
+    };
+  }));
+
+  const finalSummary = { total_records: 0, unique_sources: 0, unique_destinations: 0 };
+  allStats.forEach(s => {
+    finalSummary.total_records += (s.summary.total_records || 0);
+    finalSummary.unique_sources += (s.summary.unique_sources || 0);
+    finalSummary.unique_destinations += (s.summary.unique_destinations || 0);
+  });
+  const mergeBras = allStats.flatMap(s => s.brasDistribution).reduce((acc, item) => {
+    acc[item.bras] = (acc[item.bras] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalBras = Object.entries(mergeBras).map(([bras, cnt]) => ({ bras, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+  const mergeBrasDaily = allStats.flatMap(s => s.brasDailyDistribution).reduce((acc, item) => {
+    const dateKey = item.log_date;
+    if (!acc[dateKey]) acc[dateKey] = {};
+    acc[dateKey][item.bras] = (acc[dateKey][item.bras] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalBrasDaily = Object.entries(mergeBrasDaily).map(([date, brasMap]) => ({
+    date,
+    data: brasMap
+  })).sort((a, b) => a.date.localeCompare(b.date));
+  const mergeDestinations = allStats.flatMap(s => s.topDestinations).reduce((acc, item) => {
+    acc[item.dst_ip] = (acc[item.dst_ip] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalDestinations = Object.entries(mergeDestinations).map(([dst_ip, cnt]) => ({ dst_ip, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+  const mergeCountries = allStats.flatMap(s => s.topCountries).reduce((acc, item) => {
+    acc[item.country] = (acc[item.country] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalCountries = Object.entries(mergeCountries).map(([country, cnt]) => ({ country, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+  const mergeApps = allStats.flatMap(s => s.topApps).reduce((acc, item) => {
+    acc[item.application] = (acc[item.application] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalApps = Object.entries(mergeApps).map(([app, cnt]) => ({ application: app, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+  const mergeOrgs = allStats.flatMap(s => s.topOrgs).reduce((acc, item) => {
+    acc[item.organization] = (acc[item.organization] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalOrgs = Object.entries(mergeOrgs).map(([org, cnt]) => ({ organization: org, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+  const mergeTraffic = allStats.flatMap(s => s.hourlyTraffic).reduce((acc, item) => {
+    acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
+    return acc;
+  }, {});
+  const finalTraffic = Object.entries(mergeTraffic).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt })).sort((a, b) => a.hour - b.hour);
+
+  return {
+    summary: finalSummary,
+    brasDistribution: finalBras,
+    brasDailyDistribution: finalBrasDaily,
+    topDestinations: finalDestinations,
+    topCountries: finalCountries,
+    topApps: finalApps,
+    topOrgs: finalOrgs,
+    hourlyTraffic: finalTraffic
+  };
+}
+
 app.post('/api/stats', authMiddleware, async (req, res) => {
   try {
     const { filters = {} } = req.body;
-
-    // Override stats filters with the global system period setting only as a fallback
     const modifiedFilters = { ...filters };
     if (!modifiedFilters.datefrom || !modifiedFilters.dateto) {
       const statsPeriod = await getSystemSetting('stats_period', 'today');
@@ -547,110 +711,41 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
     }
 
     const activeIds = await resolveActiveConnections(req);
-    const allStats = await Promise.all(activeIds.map(async (connId) => {
-      const { where, params } = buildWhereClause(modifiedFilters, connId);
-      const viewName = getFullyQualifiedView(connId);
-      const srcIpCol = resolveColumn('src_ip', connId) || 'src_ip';
-      const dstIpCol = resolveColumn('dst_ip', connId) || 'dest_ip';
-      const tsCol = resolveColumn('timestamp', connId) || 'log_datetime';
-      writeLog(`[Stats Debug] Connection: ${connId}, tsCol: ${tsCol}`);
+    const currentStats = await fetchStatsForRange(activeIds, filters, modifiedFilters);
 
-      const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;
-      const protoCol = resolveColumn('protocol', connId) || 'proto';
+    // Trend Comparison: Fetch previous period stats
+    const currentRange = { datefrom: modifiedFilters.datefrom, dateto: modifiedFilters.dateto };
+    const prevRange = getPreviousPeriodDateRange(currentRange);
+    let prevTraffic = [];
+    if (prevRange) {
+      const prevStats = await fetchStatsForRange(activeIds, filters, prevRange);
+      prevTraffic = prevStats.hourlyTraffic;
+    }
+
+
+    // Heatmap Data: Group by day and hour for the last 30 days
+    const heatmapData = await Promise.all(activeIds.map(async (connId) => {
       const client = await getClickHouseClient(connId);
-      const controller = new AbortController();
-
-      const queryDefs = [
-        { key: 'summary', sql: `SELECT count() as total_records, uniq(${srcIpCol}) as unique_sources, uniq(${dstIpCol}) as unique_destinations FROM ${viewName} ${where}` },
-        { key: 'bras', sql: `SELECT d.bras, ifNull(t.total_logs, 0) AS cnt FROM (SELECT DISTINCT device_label AS bras FROM ${viewName}) AS d LEFT JOIN (SELECT device_label AS bras, count(*) AS total_logs FROM ${viewName} ${where} GROUP BY device_label) AS t ON d.bras = t.bras ORDER BY cnt DESC LIMIT 10` },
-        { key: 'dest', sql: `SELECT toString(${dstIpCol}) as dst_ip, count() as cnt FROM ${viewName} ${where} GROUP BY dst_ip ORDER BY cnt DESC LIMIT 10` },
-        { key: 'country', sql: `SELECT toString(country) as country, count() as cnt FROM ${viewName} ${where} GROUP BY country ORDER BY cnt DESC LIMIT 10` },
-        { key: 'app', sql: `SELECT toString(application) as application, count() as cnt FROM ${viewName} ${where} GROUP BY application ORDER BY cnt DESC LIMIT 10` },
-        { key: 'org', sql: `SELECT toString(organization) as organization, count() as cnt FROM ${viewName} ${where} GROUP BY organization ORDER BY cnt DESC LIMIT 10` },
-        { key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} WHERE log_date >= toDate(now() - interval 7 day) GROUP BY log_date, bras ORDER BY log_date ASC` },
-      ];
-      if (hourlyCol) {
-        queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
-      }
-
-      const results = [];
-      for (const def of queryDefs) {
-        try {
-          const res = await client.query({ query: def.sql, format: 'JSON', abort_signal: controller.signal });
-          results.push(await res.json());
-        } catch (e) {
-          writeLog(`[Stats Error] Conn: ${connId}, Query: ${def.key}, Error: ${e.message}`);
-          results.push({ data: [] });
-        }
-      }
-
-      return {
-        summary: results[0]?.data[0] || {},
-        brasDistribution: results[1]?.data || [],
-        brasDailyDistribution: results[6]?.data || [],
-        topDestinations: results[2]?.data || [],
-        topCountries: results[3]?.data || [],
-        topApps: results[4]?.data || [],
-        topOrgs: results[5]?.data || [],
-        hourlyTraffic: (hourlyCol && results[7]) ? results[7].data : [],
-      };
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId) || 'log_datetime';
+      const { where } = buildWhereClause(filters, connId);
+      const whereClause = where ? ` AND ${where.replace('WHERE', '').trim()}` : '';
+      const result = await client.query({
+        query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) ${whereClause} GROUP BY date, hour ORDER BY date, hour`,
+        format: 'JSON'
+      });
+      return await result.json();
     }));
-    const finalSummary = { total_records: 0, unique_sources: 0, unique_destinations: 0 };
-    allStats.forEach(s => {
-      finalSummary.total_records += (s.summary.total_records || 0);
-      finalSummary.unique_sources += (s.summary.unique_sources || 0);
-      finalSummary.unique_destinations += (s.summary.unique_destinations || 0);
-    });
-    const mergeBras = allStats.flatMap(s => s.brasDistribution).reduce((acc, item) => {
-      acc[item.bras] = (acc[item.bras] || 0) + item.cnt;
+    const mergedHeatmap = heatmapData.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
       return acc;
     }, {});
-    const finalBras = Object.entries(mergeBras).map(([bras, cnt]) => ({ bras, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
 
-    const mergeBrasDaily = allStats.flatMap(s => s.brasDailyDistribution).reduce((acc, item) => {
-      const dateKey = item.log_date;
-      if (!acc[dateKey]) acc[dateKey] = {};
-      acc[dateKey][item.bras] = (acc[dateKey][item.bras] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalBrasDaily = Object.entries(mergeBrasDaily).map(([date, brasMap]) => ({
-      date,
-      data: brasMap
-    })).sort((a, b) => a.date.localeCompare(b.date));
-    const mergeDestinations = allStats.flatMap(s => s.topDestinations).reduce((acc, item) => {
-      acc[item.dst_ip] = (acc[item.dst_ip] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalDestinations = Object.entries(mergeDestinations).map(([dst_ip, cnt]) => ({ dst_ip, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeCountries = allStats.flatMap(s => s.topCountries).reduce((acc, item) => {
-      acc[item.country] = (acc[item.country] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalCountries = Object.entries(mergeCountries).map(([country, cnt]) => ({ country, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeApps = allStats.flatMap(s => s.topApps).reduce((acc, item) => {
-      acc[item.application] = (acc[item.application] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalApps = Object.entries(mergeApps).map(([app, cnt]) => ({ application: app, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeOrgs = allStats.flatMap(s => s.topOrgs).reduce((acc, item) => {
-      acc[item.organization] = (acc[item.organization] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalOrgs = Object.entries(mergeOrgs).map(([org, cnt]) => ({ organization: org, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeTraffic = allStats.flatMap(s => s.hourlyTraffic).reduce((acc, item) => {
-      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalTraffic = Object.entries(mergeTraffic).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt })).sort((a, b) => a.hour - b.hour);
     res.json({
-      summary: finalSummary,
-      brasDistribution: finalBras,
-      brasDailyDistribution: finalBrasDaily,
-      topDestinations: finalDestinations,
-      topCountries: finalCountries,
-      topApps: finalApps,
-      topOrgs: finalOrgs,
-      hourlyTraffic: finalTraffic
+      ...currentStats,
+      previousHourlyTraffic: prevTraffic,
+      heatmap: mergedHeatmap
     });
   } catch (err) {
     if (err.name === 'AbortError') return;
