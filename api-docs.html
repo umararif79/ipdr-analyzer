@@ -303,6 +303,25 @@
             <a href="#admin-users-del" class="nav-item" onclick="showSection('admin-users-del')">
                 <span class="method-badge bg-post" style="background: #ff4d4f">DEL</span> Delete User
             </a>
+            <div style="padding: 5px 20px; font-size: 0.7rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase; margin-top: 10px;">Monitoring</div>
+            <a href="#admin-warrants-get" class="nav-item" onclick="showSection('admin-warrants-get')">
+                <span class="method-badge bg-get">GET</span> List Warrants
+            </a>
+            <a href="#admin-warrants-post" class="nav-item" onclick="showSection('admin-warrants-post')">
+                <span class="method-badge bg-post">POST</span> Create Warrant
+            </a>
+            <a href="#admin-warrants-put" class="nav-item" onclick="showSection('admin-warrants-put')">
+                <span class="method-badge bg-post">PUT</span> Update Warrant
+            </a>
+            <a href="#admin-warrants-del" class="nav-item" onclick="showSection('admin-warrants-del')">
+                <span class="method-badge bg-post" style="background: #ff4d4f">DEL</span> Delete Warrant
+            </a>
+            <a href="#alerts-get" class="nav-item" onclick="showSection('alerts-get')">
+                <span class="method-badge bg-get">GET</span> View Alerts
+            </a>
+            <a href="#alerts-put" class="nav-item" onclick="showSection('alerts-put')">
+                <span class="method-badge bg-post">PUT</span> Resolve Alert
+            </a>
         </div>
     </div>
 
@@ -784,6 +803,227 @@
                 </div>
             </div>
         </div>
+
+        <!-- ADMIN - WARRANTS -->
+        <div id="admin-warrants-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/warrants
+                </div>
+            </div>
+            <div class="description">Lists all monitoring warrants. Admin only.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Warrant ID</td></tr>
+                            <tr><td>name</td><td>string</td><td>Warrant name</td></tr>
+                            <tr><td>column_name</td><td>string</td><td>Column to monitor</td></tr>
+                            <tr><td>operator</td><td>string</td><td>Operator (e.g. '=', 'LIKE')</td></tr>
+                            <tr><td>value</td><td>string</td><td>Value to match</td></tr>
+                            <tr><td>active</td><td>boolean</td><td>Is active</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminWarrantsGet()">Execute</button>
+                    <div id="res-admin-warrants-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-get">Status: -</span><span id="time-admin-warrants-get">0ms</span></div>
+                        <pre id="body-admin-warrants-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/warrants
+                </div>
+            </div>
+            <div class="description">Create a new monitoring warrant. Admin only.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Warrant name</td></tr>
+                            <tr><td>column_name</td><td>string</td><td>Column (e.g. 'dest_ip')</td></tr>
+                            <tr><td>operator</td><td>string</td><td>Operator (e.g. '=')</td></tr>
+                            <tr><td>value</td><td>string</td><td>Value to trigger alert</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-warrants-post" rows="8">{
+  "name": "Facebook Monitor",
+  "column_name": "application",
+  "operator": "LIKE",
+  "value": "%facebook%"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsPost()">Execute</button>
+                    <div id="res-admin-warrants-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-post">Status: -</span><span id="time-admin-warrants-post">0ms</span></div>
+                        <pre id="body-admin-warrants-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">PUT</span> /api/admin/warrants/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing warrant. Admin only.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Updated name</td></tr>
+                            <tr><td>column_name</td><td>string</td><td>Updated column</td></tr>
+                            <tr><td>operator</td><td>string</td><td>Updated operator</td></tr>
+                            <tr><td>value</td><td>string</td><td>Updated value</td></tr>
+                            <tr><td>active</td><td>boolean</td><td>Active status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-warrants-put" rows="9">{
+  "id": 1,
+  "name": "Updated Warrant",
+  "column_name": "dest_ip",
+  "operator": "=",
+  "value": "1.1.1.1",
+  "active": true
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsPut()">Execute</button>
+                    <div id="res-admin-warrants-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-put">Status: -</span><span id="time-admin-warrants-put">0ms</span></div>
+                        <pre id="body-admin-warrants-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post" style="background: #ff4d4f">DELETE</span> /api/admin/warrants/{id}
+                </div>
+            </div>
+            <div class="description">Delete a warrant. Admin only.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-warrants-del" rows="3">{
+  "id": 1
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsDel()">Execute</button>
+                    <div id="res-admin-warrants-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-del">Status: -</span><span id="time-admin-warrants-del">0ms</span></div>
+                        <pre id="body-admin-warrants-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ALERTS -->
+        <div id="alerts-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/alerts
+                </div>
+            </div>
+            <div class="description">Fetch all unresolved alerts. Available to all authenticated users.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Alert ID</td></tr>
+                            <tr><td>warrant_id</td><td>integer</td><td>Linked Warrant ID</td></tr>
+                            <tr><td>warrant_name</td><td>string</td><td>Name of triggering warrant</td></tr>
+                            <tr><td>detected_at</td><td>ISO8601</td><td>Timestamp of detection</td></tr>
+                            <tr><td>log_sample</td><td>string</td><td>JSON sample of triggering log</td></tr>
+                            <tr><td>resolved</td><td>boolean</td><td>Resolution status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAlertsGet()">Execute</button>
+                    <div id="res-alerts-get" la="response-area hidden">
+                        <div class="response-meta"><span id="stat-alerts-get">Status: -</span><span id="time-alerts-get">0ms</span></div>
+                        <pre id="body-alerts-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="alerts-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">PUT</span> /api/alerts/{id}
+                </div>
+            </div>
+            <div class="description">Resolve an alert. Available to all authenticated users.</div>
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>resolved</td><td>boolean</td><td>True to mark as resolved</td></tr>
+                        </tbody>
+                    ---
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-alerts-put" rows="3">{
+  "id": 1,
+  "resolved": true
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAlertsPut()">Execute</button>
+                    <div id="res-alerts-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-alerts-put">Status: -</span><span id="time-alerts-put">0ms</span></div>
+                        <pre id="body-alerts-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -993,6 +1233,53 @@
             }
             const res = await callApi(`/api/admin/users/${id}`, 'DELETE');
             renderRes('admin-users-del', res);
+        }
+
+        // ── Admin Warrants ─────────────────────────────────────────────────────
+        async function execAdminWarrantsGet() {
+            const res = await callApi('/api/admin/warrants');
+            renderRes('admin-warrants-get', res);
+        }
+        async function execAdminWarrantsPost() {
+            const body = JSON.parse(document.getElementById('req-admin-warrants-post').value);
+            const res = await callApi('/api/admin/warrants', 'POST', body);
+            renderRes('admin-warrants-post', res);
+        }
+        async function execAdminWarrantsPut() {
+            const body = JSON.parse(document.getElementById('req-admin-warrants-put').value);
+            const id = body.id;
+            if (!id) {
+                alert('Warrant ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/warrants/${id}`, 'PUT', body);
+            renderRes('admin-warrants-put', res);
+        }
+        async function execAdminWarrantsDel() {
+            const body = JSON.parse(document.getElementById('req-admin-warrants-del').value);
+            const id = body.id;
+            if (!id) {
+                alert('Warrant ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/admin/warrants/${id}`, 'DELETE');
+            renderRes('admin-warrants-del', res);
+        }
+
+        // ── Alerts ─────────────────────────────────────────────────────────────
+        async function execAlertsGet() {
+            const res = await callApi('/api/alerts');
+            renderRes('alerts-get', res);
+        }
+        async function execAlertsPut() {
+            const body = JSON.parse(document.getElementById('req-alerts-put').value);
+            const id = body.id;
+            if (!id) {
+                alert('Alert ID required in request body');
+                return;
+            }
+            const res = await callApi(`/api/alerts/${id}`, 'PUT', body);
+            renderRes('alerts-put', res);
         }
     </script>
 </body>

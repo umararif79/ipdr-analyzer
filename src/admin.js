@@ -36,9 +36,129 @@ export function initAdmin() {
 // Initialization
   loadConnections();
   loadUsers();
+  loadWarrants();
   loadSystemSettings();
   initConnectionModal();
   initUserModal();
+  initWarrantModal();
+}
+
+async function loadWarrants() {
+  try {
+    const res = await fetch('/api/admin/warrants', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    const data = await res.json();
+    const tbody = document.getElementById('warrant-body');
+    tbody.innerHTML = data.map(w => `
+      <tr class="${w.active ? '' : 'opacity-50'}">
+        <td>${w.name}</td>
+        <td><code style="background:var(--bg-elevated); color:var(--text-primary); padding:2px 4px; border-radius:3px; border:1px solid var(--border-default)">${w.column_name}</code></td>
+        <td>${w.operator} <code style="background:var(--bg-elevated); color:var(--text-primary); padding:2px 4px; border-radius:3px; border:1px solid var(--border-default)">${w.value}</code></td>
+        <td><span class="badge ${w.active ? 'bg-success' : 'bg-danger'}">${w.active ? 'Active' : 'Inactive'}</span></td>
+        <td class="actions-cell">
+          <button class="btn btn-ghost btn-sm" onclick="editWarrant(${w.id})">Edit</button>
+          <button class="btn btn-ghost btn-sm text-danger" onclick="deleteWarrant(${w.id})">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    showToast('Failed to load warrants', 'error');
+  }
+}
+
+window.deleteWarrant = async (id) => {
+  try {
+    const res = await fetch(`/api/admin/warrants/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    if (res.ok) {
+      showToast('Warrant deleted', 'success');
+      loadWarrants();
+    } else {
+      const errData = await res.json();
+      showToast(errData.error || 'Error deleting warrant', 'error');
+    }
+  } catch (err) {
+    showToast('Error deleting warrant', 'error');
+  }
+};
+
+window.editWarrant = async (id) => {
+  try {
+    const res = await fetch('/api/admin/warrants', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    const warrants = await res.json();
+    const warrant = warrants.find(w => w.id === id);
+    if (!warrant) return;
+
+    currentEditingWarrantId = id;
+    document.getElementById('war-name').value = warrant.name;
+    document.getElementById('war-column').value = warrant.column_name;
+    document.getElementById('war-operator').value = warrant.operator;
+    document.getElementById('war-value').value = warrant.value;
+    document.getElementById('war-active').checked = warrant.active;
+    document.getElementById('btn-save-warrant').textContent = 'Update Warrant';
+    document.getElementById('warrant-modal').classList.remove('hidden');
+  } catch (err) {
+    showToast('Failed to load warrant details', 'error');
+  }
+};
+
+let currentEditingWarrantId = null;
+
+function initWarrantModal() {
+  const modal = document.getElementById('warrant-modal');
+  const btnAdd = document.getElementById('btn-add-warrant');
+
+  btnAdd.onclick = () => {
+    currentEditingWarrantId = null;
+    document.getElementById('war-name').value = '';
+    document.getElementById('war-column').value = '';
+    document.getElementById('war-operator').value = '=';
+    document.getElementById('war-value').value = '';
+    document.getElementById('war-active').checked = true;
+    document.getElementById('btn-save-warrant').textContent = 'Save Warrant';
+    modal.classList.remove('hidden');
+  };
+  modal.querySelector('.close-modal').onclick = () => modal.classList.add('hidden');
+
+  document.getElementById('btn-save-warrant').onclick = async () => {
+    const body = {
+      name: document.getElementById('war-name').value,
+      column_name: document.getElementById('war-column').value,
+      operator: document.getElementById('war-operator').value,
+      value: document.getElementById('war-value').value,
+      active: document.getElementById('war-active').checked,
+    };
+
+    const method = currentEditingWarrantId ? 'PUT' : 'POST';
+    const url = currentEditingWarrantId ? `/api/admin/warrants/${currentEditingWarrantId}` : '/api/admin/warrants';
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        showToast(currentEditingWarrantId ? 'Warrant updated' : 'Warrant saved', 'success');
+        modal.classList.add('hidden');
+        loadWarrants();
+      } else {
+        const errData = await res.json();
+        showToast(errData.error || 'Error saving warrant', 'error');
+      }
+    } catch (err) {
+      showToast('Error saving warrant', 'error');
+    }
+  };
 }
 
 async function loadSystemSettings() {

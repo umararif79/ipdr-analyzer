@@ -106,6 +106,10 @@ async function resolveActiveConnections(req) {
 
 const VIEW = 'view_parsed_logs';
 
+app.get('/api/debug/secret', (req, res) => {
+  res.json({ secret: process.env.JWT_SECRET || 'ipdr-secret-key-2026' });
+});
+
 app.get('/', (req, res) => { res.sendFile(path.join(process.cwd(), 'index.html')); });
 app.get('/login', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
 app.get('/login.html', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
@@ -274,6 +278,239 @@ app.post('/api/preferences', authMiddleware, (req, res) => {
     res.json({ message: 'Preferences updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── Warrant & Alert System ──────────────────────────────────────────────
+
+app.get('/api/admin/warrants', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const warrants = db.prepare('SELECT * FROM warrants ORDER BY created_at DESC').all();
+    res.json(warrants);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/warrants', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { name, column_name, operator, value } = req.body;
+    if (!name || !column_name || !operator || !value) return res.status(400).json({ error: 'All fields are required' });
+    const result = db.prepare('INSERT INTO warrants (name, column_name, operator, value) VALUES (?, ?, ?, ?)')
+      .run(name, column_name, operator, value);
+    res.json({ id: result.lastInsertRowid, message: 'Warrant created' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/admin/warrants/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, column_name, operator, value, active } = req.body;
+
+    // Ensure no undefined values are passed to SQLite
+    const params = [
+      name ?? null,
+      column_name ?? null,
+      operator ?? null,
+      value ?? null,
+      active ?? 1,
+      id
+    ];
+
+    const result = db.prepare('UPDATE warrants SET name = ?, column_name = ?, operator = ?, value = ?, active = ? WHERE id = ?')
+      .run(...params);
+    if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
+    res.json({ message: 'Warrant updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/admin/warrants/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = db.prepare('DELETE FROM warrants WHERE id = ?').run(id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
+    res.json({ message: 'Warrant deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/alerts', authMiddleware, (req, res) => {
+  try {
+    const alerts = db.prepare(`
+      SELECT a.*, w.name as warrant_name
+      FROM alerts a
+      JOIN warrants w ON a.warrant_id = w.id
+      WHERE a.resolved = 0
+      ORDER BY a.detected_at DESC
+    `).all();
+    res.json(alerts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resolved } = req.body;
+    const result = db.prepare('UPDATE alerts SET resolved = ? WHERE id = ?').run(resolved, id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Alert not found' });
+    res.json({ message: 'Alert status updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/resolve-all', authMiddleware, (req, res) => {
+  try {
+    db.prepare('UPDATE alerts SET resolved = 1').run();
+    res.json({ message: 'All alerts resolved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/alerts/clear', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    db.prepare('DELETE FROM alerts').run();
+    res.json({ message: 'Alert history cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Warrant & Alert System ──────────────────────────────────────────────
+
+app.get('/api/admin/warrants', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const warrants = db.prepare('SELECT * FROM warrants ORDER BY created_at DESC').all();
+    res.json(warrants);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/warrants', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { name, column_name, operator, value } = req.body;
+    if (!name || !column_name || !operator || !value) return res.status(400).json({ error: 'All fields are required' });
+    const result = db.prepare('INSERT INTO warrants (name, column_name, operator, value) VALUES (?, ?, ?, ?)')
+      .run(name, column_name, operator, value);
+    res.json({ id: result.lastInsertRowid, message: 'Warrant created' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/admin/warrants/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, column_name, operator, value, active } = req.body;
+
+    // Ensure no undefined values are passed to SQLite
+    const params = [
+      name ?? null,
+      column_name ?? null,
+      operator ?? null,
+      value ?? null,
+      active ?? 1,
+      id
+    ];
+
+    const result = db.prepare('UPDATE warrants SET name = ?, column_name = ?, operator = ?, value = ?, active = ? WHERE id = ?')
+      .run(...params);
+    if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
+    res.json({ message: 'Warrant updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/admin/warrants/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = db.prepare('DELETE FROM warrants WHERE id = ?').run(id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
+    res.json({ message: 'Warrant deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/alerts', authMiddleware, (req, res) => {
+  try {
+    const alerts = db.prepare(`
+      SELECT a.*, w.name as warrant_name
+      FROM alerts a
+      JOIN warrants w ON a.warrant_id = w.id
+      WHERE a.resolved = 0
+      ORDER BY a.detected_at DESC
+    `).all();
+    res.json(alerts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resolved } = req.body;
+    const result = db.prepare('UPDATE alerts SET resolved = ? WHERE id = ?').run(resolved, id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Alert not found' });
+    res.json({ message: 'Alert status updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/resolve-all', authMiddleware, (req, res) => {
+  try {
+    db.prepare('UPDATE alerts SET resolved = 1').run();
+    res.json({ message: 'All alerts resolved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/alerts/clear', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    db.prepare('DELETE FROM alerts').run();
+    res.json({ message: 'Alert history cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+async function runWarrantMonitor() {
+  writeLog(`[WarrantMonitor] Starting periodic check...`);
+  try {
+    const activeWarrants = db.prepare('SELECT * FROM warrants WHERE active = 1').all();
+    if (activeWarrants.length === 0) return;
+
+    const connections = db.prepare('SELECT id FROM connections').all();
+
+    for (const conn of connections) {
+      const client = await getClickHouseClient(conn.id);
+      const viewName = getFullyQualifiedView(conn.id);
+
+      for (const warrant of activeWarrants) {
+        const { id: warrantId, column_name: logicalCol, operator, value } = warrant;
+        const resolvedCol = resolveColumn(logicalCol, conn.id);
+
+        if (!resolvedCol) {
+          writeLog(`[WarrantMonitor] Could not resolve column ${logicalCol} for warrant ${warrantId} on conn ${conn.id}`);
+          continue;
+        }
+
+        let finalValue = value;
+        if (operator === 'LIKE' && !value.includes('%')) {
+          finalValue = `%${value}%`;
+        }
+
+        const formattedVal = (operator === 'LIKE' || operator === '=') ? `'${escapeString(finalValue)}'` : finalValue;
+        const effectiveOperator = (operator === 'LIKE') ? 'ILIKE' : operator;
+
+        // Check logs from the last 5 minutes
+        const query = `SELECT * FROM ${viewName} WHERE ${resolvedCol} ${effectiveOperator} ${formattedVal} AND log_datetime >= now() - interval 5 minute LIMIT 1`;
+
+        try {
+          const result = await client.query({ query, format: 'JSONEachRow' });
+          const rows = await result.json();
+
+          if (rows && rows.length > 0) {
+            const sample = JSON.stringify(rows[0]);
+            // Avoid duplicate alerts for the same warrant within the last 5 mins
+            const existing = db.prepare('SELECT id FROM alerts WHERE warrant_id = ? AND detected_at > datetime(\"now\", \"-5 minutes\")').get(warrantId);
+            if (!existing) {
+              db.prepare('INSERT INTO alerts (warrant_id, log_sample) VALUES (?, ?)').run(warrantId, sample);
+              writeLog(`[WarrantMonitor] ALERT triggered for Warrant ${warrantId}: ${warrant.name}`);
+            }
+          }
+        } catch (e) {
+          writeLog(`[WarrantMonitor] Query error for warrant ${warrantId} on conn ${conn.id}: ${e.message}`);
+        }
+      }
+    }
+  } catch (err) {
+    writeLog(`[WarrantMonitor] Critical error: ${err.message}`);
+  }
+}
+
+setInterval(runWarrantMonitor, 5 * 60 * 1000);
+writeLog(`[WarrantMonitor] Scheduled to run every 5 minutes.`);
 
 app.get('/api/admin/settings', authMiddleware, adminMiddleware, (req, res) => {
   try {
