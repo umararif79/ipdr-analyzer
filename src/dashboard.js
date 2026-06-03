@@ -2,6 +2,8 @@
    Dashboard — Animated Rank Widgets & Charts
    ═══════════════════════════════════════════════════════════════════ */
 
+import { pivotToFilter } from './main.js';
+
 const DASHBOARD = document.getElementById('dashboard-section');
 
 /**
@@ -20,9 +22,9 @@ function createRankWidget(title, data, valueKey) {
   const renderItem = (index) => {
     const item = data[index];
     return `
-      <div class="rank-number">#${index + 1}</div>
+      <div class="rank-number">${index + 1}</div>
       <div class="rank-label">${title}</div>
-      <div class="rank-value">${truncate(item[valueKey], 20)}</div>
+      <div class="rank-value" style="cursor:pointer" onclick="window.pivotToFilter('${valueKey}', '${item[valueKey]}')">${truncate(item[valueKey], 20)}</div>
       <div class="rank-count">${formatBigNumber(item.cnt)} hits</div>
     `;
   };

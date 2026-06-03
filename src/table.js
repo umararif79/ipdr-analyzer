@@ -23,6 +23,7 @@ const PROTOCOL_PATTERNS = ['protocol', 'proto'];
 const URL_PATTERNS = ['url', 'uri', 'domain', 'host', 'sni'];
 
 function matchesPattern(name, patterns) {
+  if (!name) return false;
   const lower = name.toLowerCase();
   return patterns.some(p => lower.includes(p));
 }
@@ -83,6 +84,11 @@ function renderHeader() {
     tr.appendChild(th);
   }
 
+  const thAction = document.createElement('th');
+  thAction.textContent = 'Action';
+  thAction.style.width = '100px';
+  tr.appendChild(thAction);
+
   TABLE_HEAD.appendChild(tr);
 }
 
@@ -93,6 +99,7 @@ function renderHeader() {
  * @param {number} pageSize
  */
 export function renderRows(rows, page = 1, pageSize = 50) {
+  console.log(`[DEBUG] renderRows called with ${rows?.length || 0} rows. First row:`, rows?.[0]);
   TABLE_BODY.innerHTML = '';
   TABLE_LOADING.classList.add('hidden');
 
@@ -102,6 +109,15 @@ export function renderRows(rows, page = 1, pageSize = 50) {
   }
 
   TABLE_EMPTY.classList.add('hidden');
+
+  // Fallback: if no valid columns are defined but we have data, derive columns from the first row
+  const hasValidColumns = currentColumns && currentColumns.length > 0 && currentColumns.some(c => c && c.name);
+  if (!hasValidColumns && rows && rows.length > 0) {
+    console.log('[DEBUG] Deriving columns from data row fallback');
+    const keys = Object.keys(rows[0]);
+    currentColumns = keys.map(k => ({ name: k, type: 'String' }));
+    renderHeader();
+  }
 
   const startIdx = (page - 1) * pageSize;
 
@@ -117,7 +133,15 @@ export function renderRows(rows, page = 1, pageSize = 50) {
 
     for (const col of currentColumns) {
       const td = document.createElement('td');
-      const raw = row[col.name];
+
+      // Try exact match first, then case-insensitive match
+      let raw = row[col.name];
+      if (raw === undefined) {
+        const rowKeys = Object.keys(row);
+        const matchedKey = rowKeys.find(k => k && typeof k === 'string' && k.toLowerCase() === col.name?.toLowerCase());
+        if (matchedKey) raw = row[matchedKey];
+      }
+
       const val = raw != null ? String(raw) : '';
 
       // Classify & style
@@ -144,6 +168,24 @@ export function renderRows(rows, page = 1, pageSize = 50) {
 
       tr.appendChild(td);
     }
+
+    // Add 'Related' action button
+    const tdAction = document.createElement('td');
+    tdAction.style.width = '100px';
+    const btnRelated = document.createElement('button');
+    btnRelated.className = 'btn-related';
+    btnRelated.textContent = 'Related';
+    btnRelated.onclick = () => {
+      const srcIp = row.src_ip || row.src_addr || row.source_ip;
+      const ts = row.log_datetime || row.timestamp;
+      if (srcIp && ts) {
+        window.showRelatedEvents(srcIp, ts);
+      } else {
+        alert('Missing required fields (src_ip or timestamp) for related events search.');
+      }
+    };
+    tdAction.appendChild(btnRelated);
+    tr.appendChild(tdAction);
 
     TABLE_BODY.appendChild(tr);
   });

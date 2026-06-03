@@ -20,7 +20,7 @@ export function renderFilters(columns) {
   FILTER_GRID.innerHTML = '';
   filterInputs = {};
 
-  const colNames = columns.map(c => c.name.toLowerCase());
+  const colNames = columns.map(c => c.name ? c.name.toLowerCase() : '');
 
   // Render known filters
   for (const f of KNOWN_FILTERS) {
