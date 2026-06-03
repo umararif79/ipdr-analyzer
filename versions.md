@@ -1,6 +1,14 @@
 # Project Versions
 
+## v1.6 (2026-05-25)
+### New Features
+- **Alert/Warrant System**: Implementation of monitoring rules (warrants) to trigger alerts when specific traffic patterns (e.g., specific IP or Application) are detected in ClickHouse logs.
+- **Active Alerting**: Real-time alert notifications on the dashboard with the ability to resolve and manage alerts.
+- **Admin Warrant Management**: Full CRUD interface for monitoring warrants and system-wide alert clearing.
+
 ## v1.5 (2026-05-25)
+... (rest of the file)
+
 ### Fixes & Improvements
 - **UI Alignment**: Fixed sizing and alignment of Trend and Heatmap charts, adding a scrollable wrapper to keep the layout linear.
 - **Trend Comparison**: Fixed logic to correctly compare the current selected date range against the preceding period of equal duration.

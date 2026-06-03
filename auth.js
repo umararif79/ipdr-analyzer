@@ -13,8 +13,10 @@ export function generateToken(user) {
 
 export function verifyToken(token) {
   try {
+    console.log(`[Auth] Verifying token with secret: ${JWT_SECRET}`);
     return jwt.verify(token, JWT_SECRET);
   } catch (err) {
+    console.log(`[Auth] Token verification failed: ${err.message}`);
     return null;
   }
 }

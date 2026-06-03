@@ -4,7 +4,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { checkHealth, fetchColumns, queryData, fetchStats } from './api.js';
-import { renderFilters, getFilterValues, resetFilters, setDefaultFilterValue, getStartOfToday, getStartOfYesterday, getStartOfLastWeek } from './filters.js';
+import { renderFilters, getFilterValues, resetFilters, setDefaultFilterValue, getStartOfToday, getStartOfYesterday, getStartOfLastWeek, applyFilterValues } from './filters.js';
 import { setColumns, renderRows, updatePagination, showLoading, onSort, getSortState } from './table.js';
 import { renderDashboard, updateDashboard, renderCharts } from './dashboard.js';
 import { downloadCSV } from './export.js';
@@ -17,6 +17,95 @@ let columns = [];
 let currentPage = 1;
 let currentPageSize = 50;
 let totalPages = 1;
+
+// ── Favorites Logic ───────────────────────────────────────────────
+async function initFavorites() {
+  const favoritesSelect = document.getElementById('filter-favorites');
+  const btnSaveFav = document.getElementById('btn-save-favorite');
+
+  if (!favoritesSelect || !btnSaveFav) return;
+
+  // Load initial favorites
+  await loadFavorites();
+
+  // Apply favorite on change
+  favoritesSelect.addEventListener('change', async (e) => {
+    const favId = e.target.value;
+    if (!favId) return;
+
+    const favorites = Array.from(favoritesSelect.options)
+      .filter(opt => opt.value !== '')
+      .map(opt => ({ id: opt.value, name: opt.textContent }));
+
+    // This is a simplification; ideally we'd store the values in the select or fetch them.
+    // Since we already have the favorites list in the dropdown, we should fetch the specific favorite.
+    try {
+      const res = await fetch('/api/filters/favorites', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+      });
+      const data = await res.json();
+      const selected = data.find(f => f.id == favId);
+      if (selected) {
+        applyFilterValues(JSON.parse(selected.filter_values));
+        currentPage = 1;
+        loadData('favorite-applied');
+        loadStats('favorite-applied');
+        showToast(`Applied favorite: ${selected.name}`, 'success', 2000);
+      }
+    } catch (err) {
+      showToast('Failed to apply favorite', 'error');
+    }
+  });
+
+  // Save current filters as favorite
+  btnSaveFav.onclick = async () => {
+    const name = prompt('Enter a name for this filter preset:');
+    if (!name) return;
+
+    const filterValues = getFilterValues();
+    if (Object.keys(filterValues).length === 0) {
+      showToast('No active filters to save', 'warning');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/filters/favorites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
+        },
+        body: JSON.stringify({ name, filter_values: filterValues })
+      });
+      if (res.ok) {
+        showToast('Favorite saved!', 'success');
+        await loadFavorites();
+      } else {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+    } catch (e) {
+      showToast(`Save failed: ${e.message}`, 'error');
+    }
+  };
+}
+
+async function loadFavorites() {
+  const select = document.getElementById('filter-favorites');
+  if (!select) return;
+
+  try {
+    const res = await fetch('/api/filters/favorites', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    const favorites = await res.json();
+
+    select.innerHTML = '<option value="">— Saved Filters —</option>' +
+      favorites.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+  } catch (err) {
+    console.error('Failed to load favorites:', err);
+  }
+}
 
 // ── Init ───────────────────────────────────────────────────────
 async function initializeApp() {
@@ -58,6 +147,12 @@ async function initializeApp() {
       // Populate Connection Selector
       await initConnectionSelector();
 
+      // Load User Preferences
+      const prefRes = await fetch('/api/preferences', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+      });
+      const prefs = await prefRes.json();
+
       // Apply column visibility
       const visibleColNames = userSettings.visibleColumns.length > 0
         ? userSettings.visibleColumns
@@ -71,7 +166,9 @@ async function initializeApp() {
       setDefaultFilterValue('dateFrom', getStartOfToday());
       initSettingsModal(columns);
       initPeriodSelector();
+      initFavorites();
       initAdmin();
+      initAlerts();
 
       // Set initial active period to 'Today'
       document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
@@ -391,3 +488,107 @@ async function doHealthCheck() {
 }
 
 setInterval(doHealthCheck, 30000);
+
+// ── Alert Notifications Logic ──────────────────────────────────────
+async function initAlerts() {
+  const btnAlerts = document.getElementById('btn-alerts');
+  const panel = document.getElementById('alerts-panel');
+  const btnClose = document.getElementById('btn-close-alerts');
+  const btnResolveAll = document.getElementById('btn-resolve-all');
+  const btnClear = document.getElementById('btn-clear-alerts');
+
+  if (!btnAlerts || !panel) return;
+
+  btnAlerts.onclick = () => {
+    panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+  };
+
+  btnClose.onclick = () => {
+    panel.style.display = 'none';
+  };
+
+  btnResolveAll.onclick = async () => {
+    try {
+      const res = await fetch('/api/alerts/resolve-all', {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+      });
+      if (res.ok) {
+        showToast('All alerts resolved', 'success');
+        updateAlerts();
+      }
+    } catch (err) {
+      showToast('Failed to resolve alerts', 'error');
+    }
+  };
+
+  btnClear.onclick = async () => {
+    if (!confirm('Clear all alert history?')) return;
+    try {
+      const res = await fetch('/api/alerts/clear', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+      });
+      if (res.ok) {
+        showToast('Alert history cleared', 'success');
+        updateAlerts();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Error clearing alerts', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to clear alerts', 'error');
+    }
+  };
+
+  // Initial load and periodic poll
+  updateAlerts();
+  setInterval(updateAlerts, 30000);
+}
+
+async function updateAlerts() {
+  try {
+    const res = await fetch('/api/alerts', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    const alerts = await res.json();
+    const countBadge = document.getElementById('alert-count');
+    const list = document.getElementById('alerts-list');
+
+    if (countBadge) countBadge.textContent = alerts.length;
+    if (!list) return;
+
+    list.innerHTML = alerts.length === 0
+      ? '<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:0.9rem">No active alerts</div>'
+      : alerts.map(a => `
+          <div class="alert-item" onclick="resolveAlert(${a.id})">
+            <div class="alert-title">
+              <span>${a.warrant_name}</span>
+              <span class="alert-time">${new Date(a.detected_at).toLocaleString()}</span>
+            </div>
+            <code class="alert-sample">${a.log_sample || 'No sample available'}</code>
+          </div>
+        `).join('');
+  } catch (err) {
+    console.error('Alert update failed:', err);
+  }
+}
+
+window.resolveAlert = async (id) => {
+  try {
+    const res = await fetch(`/api/alerts/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
+      },
+      body: JSON.stringify({ resolved: true })
+    });
+    if (res.ok) {
+      showToast('Alert resolved', 'success');
+      updateAlerts();
+    }
+  } catch (err) {
+    showToast('Failed to resolve alert', 'error');
+  }
+};

@@ -116,6 +116,21 @@ export function getFilterValues() {
   return filters;
 }
 
+/** Sets the values of filter inputs from a provided filter object. */
+export function applyFilterValues(filters) {
+  if (!filters) return;
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (filterInputs[key]) {
+      filterInputs[key].value = value;
+    } else if (key === 'genericColumn' && filterInputs._genericCol) {
+      filterInputs._genericCol.value = value;
+    } else if (key === 'genericValue' && filterInputs._genericVal) {
+      filterInputs._genericVal.value = value;
+    }
+  }
+}
+
 /** Reset all filter inputs. */
 export function resetFilters() {
   for (const input of Object.values(filterInputs)) {
