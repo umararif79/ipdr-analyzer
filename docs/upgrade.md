@@ -71,3 +71,22 @@ If you encounter issues after upgrading:
    pm2 restart all
    ```
 2. **Logs**: Check the server logs for specific error messages to diagnose the issue.
+
+
+Quick Summary for Transfer
+
+If you are using a zip file for transfer (as discussed earlier), your package should look like this:
+/ipdr-analyzer/
+├── .env
+├── package.json
+├── package-lock.json
+├── server.js
+├── localdb.js
+├── auth.js
+├── crypto.js
+├── logger.js
+├── index.html
+├── login.html
+├── api-docs.html
+├── src/ (all services inside)
+└── docs/ (optional)

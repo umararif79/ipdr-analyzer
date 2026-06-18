@@ -117,3 +117,20 @@ sudo firewall-cmd --reload
 - **Port 22**: Open (SSH for administration).
 - **Authentication**: All API requests are protected by JWT tokens.
 
+Quick Summary for Transfer
+
+If you are using a zip file for transfer (as discussed earlier), your package should look like this:
+/ipdr-analyzer/
+├── .env
+├── package.json
+├── package-lock.json
+├── server.js
+├── localdb.js
+├── auth.js
+├── crypto.js
+├── logger.js
+├── index.html
+├── login.html
+├── api-docs.html
+├── src/ (all services inside)
+└── docs/ (optional)
