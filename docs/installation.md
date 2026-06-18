@@ -116,3 +116,4 @@ sudo firewall-cmd --reload
 - **Port 3001**: Closed to external traffic (Accessible only internally via Nginx).
 - **Port 22**: Open (SSH for administration).
 - **Authentication**: All API requests are protected by JWT tokens.
+
