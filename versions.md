@@ -1,5 +1,22 @@
 # Project Versions
 
+## v1.7 (2026-05-30)
+### New Features
+- **Service-Oriented Architecture**: Backend refactored into specialized services (`connectionService`, `queryService`, `auditService`, `monitoringService`, `notificationService`, `validationService`) for improved maintainability and scalability.
+- **User Personalization**: Added support for favorite filter sets and individual UI preferences (dashboard layout).
+- **Health Monitoring**: Integrated `/api/health` endpoint to verify connectivity of all assigned ClickHouse clusters.
+- **Enhanced Governance**: Implemented complete audit trails for all administrative actions (CREATE, UPDATE, DELETE).
+- **Real-time Alerting**: Added notification provider support for Telegram and Slack to deliver warrant-triggered alerts.
+- **Related Logs**: New `/api/related` endpoint to retrieve temporally and spatially related logs across authorized connections.
+
+### Fixes & Improvements
+- **Monitoring Stability**: Resolved crashes in `runAnomalyDetection` and `runWarrantMonitor` by adding the missing `fingerprint` column to the `alerts` table.
+- **Column API Format**: Fixed `/api/columns` to return a flat array of objects instead of Map entries, resolving "undefined" labels and empty checkbox lists in UI Settings.
+- **Stats API Reliability**: Resolved transient "Too many parameter values" errors and added enhanced stack-trace logging for better diagnostics.
+- **Query Parameterization**: Improved ClickHouse parameter handling to prevent substitution errors.
+- **Request Validation**: Integrated `express-validator` with schema-based validation for all critical API endpoints.
+- **Token Management**: Enhanced JWT role-based access control (RBAC) to support 'manager' and 'auditor' roles.
+
 ## v1.6 (2026-05-25)
 ### New Features
 - **Alert/Warrant System**: Implementation of monitoring rules (warrants) to trigger alerts when specific traffic patterns (e.g., specific IP or Application) are detected in ClickHouse logs.
@@ -7,8 +24,6 @@
 - **Admin Warrant Management**: Full CRUD interface for monitoring warrants and system-wide alert clearing.
 
 ## v1.5 (2026-05-25)
-... (rest of the file)
-
 ### Fixes & Improvements
 - **UI Alignment**: Fixed sizing and alignment of Trend and Heatmap charts, adding a scrollable wrapper to keep the layout linear.
 - **Trend Comparison**: Fixed logic to correctly compare the current selected date range against the preceding period of equal duration.

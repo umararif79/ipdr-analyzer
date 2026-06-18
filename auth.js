@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import db from './localdb.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ipdr-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export function generateToken(user) {
   return jwt.sign(
@@ -38,10 +38,16 @@ export function authMiddleware(req, res, next) {
   next();
 }
 
+export function roleMiddleware(allowedRoles) {
+  return (req, res, next) => {
+    if (req.user && allowedRoles.includes(req.user.role)) {
+      next();
+    } else {
+      res.status(403).json({ error: `Required role: ${allowedRoles.join(' or ')}` });
+    }
+  };
+}
+
 export function adminMiddleware(req, res, next) {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Administrator privileges required' });
-  }
+  return roleMiddleware(['admin'])(req, res, next);
 }

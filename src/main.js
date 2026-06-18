@@ -12,6 +12,52 @@ import { showToast } from './toast.js';
 import { loadSettings, saveSettings, getSettings, isAdmin } from './settings.js';
 import { initAdmin } from './admin.js';
 
+export async function pivotToFilter(column, value) {
+  const filters = getFilterValues();
+  filters[column] = value;
+  applyFilterValues(filters);
+  currentPage = 1;
+  await loadData('pivot-navigation');
+  await loadStats('pivot-navigation');
+  showToast(`Pivoted to ${column}: ${value}`, 'info', 2000);
+}
+window.pivotToFilter = pivotToFilter;
+
+export async function showRelatedEvents(srcIp, timestamp) {
+  showLoading();
+  try {
+    const res = await fetch(`/api/related?src_ip=${encodeURIComponent(srcIp)}&timestamp=${encodeURIComponent(timestamp)}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
+    });
+    const data = await res.json();
+
+    if (data.length === 0) {
+      showToast('No related events found in the 5m window', 'info');
+      return;
+    }
+
+    renderRows(data, 1, data.length);
+    updatePagination(1, 1, data.length, data.length);
+    showToast(`Found ${data.length} related events`, 'success');
+
+    if (!document.getElementById('btn-back-to-main')) {
+      const btn = document.createElement('button');
+      btn.id = 'btn-back-to-main';
+      btn.className = 'btn-secondary';
+      btn.textContent = '← Back to Filtered View';
+      btn.style.marginBottom = '10px';
+      btn.onclick = () => {
+        btn.remove();
+        loadData('back-from-related');
+      };
+      document.getElementById('table-controls').prepend(btn);
+    }
+  } catch (err) {
+    showToast(`Related events failed: ${err.message}`, 'error');
+  }
+}
+window.showRelatedEvents = showRelatedEvents;
+
 // ── State ──────────────────────────────────────────────────────
 let columns = [];
 let currentPage = 1;
@@ -107,7 +153,7 @@ async function loadFavorites() {
   }
 }
 
-// ── Init ───────────────────────────────────────────────────────
+// ── Favorites Logic ───────────────────────────────────────────────// ── Init ───────────────────────────────────────────────────────
 async function initializeApp() {
   // 1. Auth Check - MUST be first
   const token = localStorage.getItem('ipdr_token');
@@ -154,14 +200,21 @@ async function initializeApp() {
       const prefs = await prefRes.json();
 
       // Apply column visibility
+      console.log(`[DEBUG] All discovered columns:`, columns.map(c => c.name));
+      console.log(`[DEBUG] User visible columns setting:`, userSettings.visibleColumns);
+
       const visibleColNames = userSettings.visibleColumns.length > 0
         ? userSettings.visibleColumns
         : columns.map(c => c.name);
 
       const filteredCols = columns.filter(c => visibleColNames.includes(c.name));
 
+      // Fallback: if no columns match visibility settings, show all discovered columns
+      const finalCols = filteredCols.length > 0 ? filteredCols : columns;
+      console.log(`[DEBUG] Final columns to render:`, finalCols.map(c => c.name));
+
       // Initialize UI
-      setColumns(filteredCols);
+      setColumns(finalCols);
       renderFilters(columns);
       setDefaultFilterValue('dateFrom', getStartOfToday());
       initSettingsModal(columns);
@@ -332,7 +385,9 @@ function initSettingsModal(allCols) {
 
   const current = getSettings();
 
-  columnList.innerHTML = allCols.map(col => `
+  columnList.innerHTML = allCols
+    .filter(col => col && col.name)
+    .map(col => `
     <label class="col-item">
       <input type="checkbox" data-col="${col.name}" ${current.visibleColumns.length === 0 || current.visibleColumns.includes(col.name) ? 'checked' : ''} />
       <span>${col.name}</span>

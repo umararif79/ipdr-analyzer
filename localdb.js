@@ -57,9 +57,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS warrants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    column_name TEXT NOT NULL,
-    operator TEXT NOT NULL,
-    value TEXT NOT NULL,
+    column_name TEXT,
+    operator TEXT,
+    value TEXT,
+    conditions TEXT,
     active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -69,8 +70,31 @@ db.exec(`
     warrant_id INTEGER NOT NULL,
     detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     log_sample TEXT,
+    fingerprint TEXT,
     resolved BOOLEAN DEFAULT 0,
     FOREIGN KEY (warrant_id) REFERENCES warrants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS notification_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id INTEGER,
+    provider TEXT,
+    status TEXT,
+    message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    action TEXT NOT NULL,
+    resource TEXT,
+    resource_id TEXT,
+    old_value TEXT,
+    new_value TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ip_address TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
   );
 
 `);

@@ -1,4 +1,4 @@
-# Project Architecture & Workflow
+# Project Architecture & Workflow (v1.7)
 
 This document explains the role of each file and how data flows through the system.
 
@@ -15,16 +15,22 @@ The frontend is a "thin client." It does not process data; it only displays it a
 | `src/filters.js` | **The Input Manager** | Manages the filter panel, maps columns, and handles period selectors (Today/Yesterday). |
 | `src/table.js` | **The Data Grid** | Renders the raw JSON results from the server into a readable HTML table. |
 | `src/dashboard.js` | **The Visualizer** | Processes statistical data to update counters and traffic charts. |
-| `src/admin.js` | **The Manager** | Logic for the Admin Panel: managing ClickHouse connections and users. |
+| `src/admin.js` | **The Manager** | Logic for the Admin Panel: managing ClickHouse connections, users, and warrants. |
 | `src/settings.js` | **The Memory** | Saves user preferences (theme, visible columns) to `localStorage`. |
 
 ### ⚙️ Backend (The Engine)
-The backend acts as a secure proxy and translator between the UI and the Database.
+The backend acts as a secure proxy and translator between the UI and the Database, now utilizing a modular service architecture.
 
 | File | Role | Key Functions |
 | :--- | :--- | :--- |
-| `server.js` | **The Brain** | Translates UI filters into SQL, manages ClickHouse clients, and aggregates statistics. |
-| `localdb.js` | **The Config Store** | An SQLite DB storing users, passwords, and connection mappings. |
+| `server.js` | **The API Gateway** | Handles HTTP routing, middleware integration, and delegates business logic to services. |
+| `src/services/connectionService.js` | **DB Manager** | Manages ClickHouse clients and column caching. |
+| `src/services/queryService.js` | **Query Builder** | Translates filters into SQL and performs statistical aggregations. |
+| `src/services/auditService.js` | **Compliance** | Logs administrative changes to the audit trail. |
+| `src/services/monitoringService.js` | **Watchdog** | Runs background anomaly detection and warrant checks. |
+| `src/services/notificationService.js` | **Messenger** | Dispatches alerts to Telegram/Slack. |
+| `src/services/validationService.js` | **Gatekeeper** | Validates API request bodies against defined schemas. |
+| `localdb.js` | **The Config Store** | An SQLite DB storing users, passwords, connection mappings, and warrants. |
 | `auth.js` | **The Security Guard** | Validates JWT tokens and enforces Role-Based Access Control (RBAC). |
 
 ---
@@ -39,15 +45,17 @@ When a user performs an action (e.g., searching for an IP address), the followin
 ### Step 2: API Request (Frontend $\rightarrow$ Backend)
 `src/api.js` sends a `POST` request to the server (e.g., `/api/query`). It includes a **JWT Token** in the Authorization header.
 
-### Step 3: Security & Authorization (Backend)
-`auth.js` intercepts the request. It verifies the token and checks `localdb.js` to see which ClickHouse connections the user is allowed to access.
+### Step 3: Security & Validation (Backend)
+1. `auth.js` verifies the token and checks `localdb.js` for authorized connections.
+2. `validationService.js` checks the request body against the required schema.
 
-### Step 4: SQL Translation (Backend)
-`server.js` takes the logical filter (e.g., `dst_ip: '1.1.1.1'`) and converts it into a physical SQL query:
-`SELECT * FROM view_parsed_logs WHERE dest_ip = '1.1.1.1' ORDER BY log_datetime DESC LIMIT 50`
+### Step 4: Logic Execution (Service Layer)
+The request is routed to the appropriate service:
+- For queries: `queryService.js` builds the SQL $\rightarrow$ `connectionService.js` provides the DB client $\rightarrow$ ClickHouse executes.
+- For admin tasks: `auditService.js` logs the change $\rightarrow$ `localdb.js` updates the configuration.
 
 ### Step 5: Data Retrieval (Backend $\rightarrow$ ClickHouse)
-The server retrieves the ClickHouse password from `localdb.js`, opens a connection, executes the query, and receives the result set.
+The server retrieves the ClickHouse password from `localdb.js` (via `connectionService.js`), opens a connection, executes the query, and receives the result set.
 
 ### Step 6: Presentation (Backend $\rightarrow$ Frontend)
 The server sends the data back as JSON. `src/main.js` receives it and tells `src/table.js` to render the rows and `src/dashboard.js` to update the charts.
@@ -57,4 +65,5 @@ The server sends the data back as JSON. `src/main.js` receives it and tells `src
 ## 3. Security Summary
 - **Password Safety**: ClickHouse passwords stay on the server. They are never sent to the browser.
 - **Access Control**: Users can only query the connections assigned to them in the `user_connections` table.
-- **Query Safety**: The server uses an `escapeString` function to prevent SQL injection attacks.
+- **Query Safety**: The server uses a structured query builder in `queryService.js` to prevent SQL injection.
+- **Auditability**: All administrative changes are permanently logged in the SQLite audit table.
