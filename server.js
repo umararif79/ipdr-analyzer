@@ -25,6 +25,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
+console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.2`);
 app.use(cors());
 app.use(compression());
 app.use(express.json());
@@ -391,8 +392,8 @@ app.get('/api/related', authMiddleware, async (req, res) => {
       const client = await getClickHouseClient(connId);
       const viewName = getFullyQualifiedView(connId);
 
-      const query = `SELECT * FROM ${viewName} WHERE src_ip = {ip:String} AND log_datetime BETWEEN toDateTime64('${timestamp}') - INTERVAL 5 MINUTE AND toDateTime64('${timestamp}') + INTERVAL 5 MINUTE ORDER BY log_datetime ASC`;
-      const result = await client.query({ query, params: { ip: src_ip }, format: 'JSONEachRow' });
+      const query = `SELECT * FROM ${viewName} WHERE src_ip = ? AND log_datetime BETWEEN toDateTime64('${timestamp}') - INTERVAL 5 MINUTE AND toDateTime64('${timestamp}') + INTERVAL 5 MINUTE ORDER BY log_datetime ASC`;
+      const result = await client.query({ query, params: [src_ip], format: 'JSONEachRow' });
       return await result.json();
     }));
 
@@ -475,10 +476,16 @@ app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req,
       const whereClause = where ? ` ${where}` : '';
       const query = `SELECT * FROM ${escapedView}${whereClause} ORDER BY \`${orderCol}\` ${order} LIMIT ${limit} OFFSET ${offset}`;
 
-      logger.info(`\n[ClickHouse Execute] Connection: ${connId}\nSQL: ${query}\nParams: ${JSON.stringify(params)}`);
+      const debugRow = await db.prepare('SELECT value FROM system_settings WHERE key = ?').get('debug_mode');
+      const debugEnabled = debugRow?.value === 'true';
 
-      logger.info(`[DEBUG] Sending to ClickHouse - Query: ${query}`);
-      logger.info(`[DEBUG] Sending to ClickHouse - Params: ${JSON.stringify(params)}`);
+      if (debugEnabled) {
+        logger.info(`\n[DEBUG-EXECUTION] 🚀 Sending to ClickHouse:`);
+        logger.info(`  SQL: ${query}`);
+        logger.info(`  Params: ${JSON.stringify(params, null, 2)}`);
+        logger.info(`  Connection: ${connId}\n`);
+      }
+
       const result = await client.query({ query, params, format: 'JSONEachRow', abort_signal: controller.signal });
       const rows = await result.json();
 
@@ -579,7 +586,8 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
         const client = await getClickHouseClient(connId);
         const viewName = getFullyQualifiedView(connId);
         const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-        const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns);
+S laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
+        const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns, { excludeDates: true });
         const whereClause = where ? ` AND ${where.replace('WHERE', '').trim()}` : '';
         const result = await client.query({
           query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) ${whereClause} GROUP BY date, hour ORDER BY date, hour`,
@@ -587,6 +595,7 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
           format: 'JSON'
         });
         return await result.json();
+S laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
       } catch (e) {
         logger.error(`[Heatmap Error] Connection ${connId}: ${e.message}`);
         return { data: [] };

@@ -14,16 +14,88 @@ const COLUMN_MAP = {
 };
 
 export function resolveColumn(logicalName, connectionId, cachedColumns) {
-  if (!cachedColumns || !cachedColumns.has(connectionId)) return null;
-  const cols = cachedColumns.get(connectionId);
-
   const mapped = COLUMN_MAP[logicalName];
+
+  if (!cachedColumns || !cachedColumns.has(connectionId)) {
+    return mapped || logicalName;
+  }
+
+  const cols = cachedColumns.get(connectionId);
   if (mapped && cols.some(c => c.name === mapped)) return mapped;
   if (cols.some(c => c.name === logicalName)) return logicalName;
-  return null;
+
+  return mapped || logicalName;
 }
 
-export function buildWhereClause(filters, connectionId, cachedColumns) {
+function processCustomRules(rules, connectionId, cachedColumns) {
+  if (!rules || !Array.isArray(rules)) return { fragment: null, params: {} };
+
+  const fragments = [];
+  const ruleParams = {};
+  let paramCount = 0;
+
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    const { column, operator, value, logic } = rule;
+
+    if (!column || value === undefined) continue;
+
+    const resolvedCol = resolveColumn(column, connectionId, cachedColumns);
+    if (!resolvedCol) {
+      logger.info(`[CustomFilter] Column not resolved: ${column}`);
+      continue;
+    }
+
+    let colType = 'String';
+    if (cachedColumns && cachedColumns.has(connectionId)) {
+      const cols = cachedColumns.get(connectionId) || [];
+      const colMatch = cols.find(c => c.name === resolvedCol);
+      if (colMatch) colType = colMatch.type;
+    }
+
+    let sqlFragment = '';
+    let finalValue = value;
+
+    const opMap = {
+      '=': '=',
+      '!=': '!=',
+      'LIKE': 'LIKE',
+      'contains': 'LIKE',
+    };
+    const sqlOp = opMap[operator] || '=';
+
+    if (sqlOp === 'LIKE' && typeof value === 'string' && !value.includes('%')) {
+      finalValue = `%${value}%`;
+    }
+
+    // IMPORTANT: Direct string interpolation to bypass @clickhouse/client parameter bug
+    const escapedVal = typeof finalValue === 'string' ? `'${finalValue.replace(/'/g, "''")}'` : finalValue;
+
+    if (colType.includes('UInt') || colType.includes('Int')) {
+      const val = parseInt(finalValue, 10);
+      if (!isNaN(val)) {
+        sqlFragment = `${resolvedCol} ${sqlOp} ${val}`;
+      } else {
+        sqlFragment = `toString(${resolvedCol}) ${sqlOp} ${escapedVal}`;
+      }
+    } else {
+      sqlFragment = `${resolvedCol} ${sqlOp} ${escapedVal}`;
+    }
+
+    if (sqlFragment) {
+      const prefix = i === 0 ? '' : ` ${logic || 'AND'} `;
+      fragments.push(prefix + sqlFragment);
+    }
+  }
+
+  return {
+    fragment: fragments.length > 0 ? fragments.join('') : null,
+    params: {} // No longer using named substitutions for custom rules
+  };
+}
+
+export function buildWhereClause(filters, connectionId, cachedColumns, options = {}) {
+  const { excludeDates = false } = options;
   const conditions = [];
   const params = {};
   const cols = cachedColumns?.get(connectionId) || [];
@@ -38,25 +110,34 @@ export function buildWhereClause(filters, connectionId, cachedColumns) {
     });
   }
   logger.info(`[Filter Debug] Normalized Filters: ${JSON.stringify(normalizedFilters)}`);
+  logger.info(`[VERIFICATION] Running buildWhereClause v2.1`);
 
   const dateFrom = normalizedFilters.datefrom;
   const dateTo = normalizedFilters.dateto;
 
-    if (dateFrom && dateCol) {
+    if (!excludeDates && dateFrom && dateCol) {
       const cleanDateFrom = typeof dateFrom === 'string' ? dateFrom.slice(0, 10) : dateFrom;
       conditions.push(`${dateCol} >= toDate('${cleanDateFrom}')`);
     }
-    if (dateTo && dateCol) {
+    if (!excludeDates && dateTo && dateCol) {
       const cleanDateTo = typeof dateTo === 'string' ? dateTo.slice(0, 10) : dateTo;
       conditions.push(`${dateCol} <= toDate('${cleanDateTo}')`);
-    } else if (dateFrom && !dateTo && dateCol) {
+    } else if (!excludeDates && dateFrom && !dateTo && dateCol) {
       const now = new Date().toISOString().slice(0, 10);
       conditions.push(`${dateCol} <= toDate('${now}')`);
     }
 
-  const genericCol = normalizedFilters.genericcolumn;
-  const genericVal = normalizedFilters.genericvalue;
-  if (genericCol && genericVal) {
+  // Linear Custom Rules
+  if (normalizedFilters.customrules) {
+    const { fragment, params: ruleParams } = processCustomRules(normalizedFilters.customrules, connectionId, cachedColumns);
+    if (fragment) {
+      conditions.push(`(${fragment})`);
+      Object.assign(params, ruleParams);
+    }
+  } else if (normalizedFilters.genericcolumn && normalizedFilters.genericvalue) {
+    // Legacy Generic Filter Fallback
+    const genericCol = normalizedFilters.genericcolumn;
+    const genericVal = normalizedFilters.genericvalue;
     const resolvedGenericCol = resolveColumn(genericCol, connectionId, cachedColumns);
     if (resolvedGenericCol) {
       const colMatch = cols.find(c => c.name === resolvedGenericCol);
@@ -76,9 +157,10 @@ export function buildWhereClause(filters, connectionId, cachedColumns) {
     }
   }
 
+  // Standard flat filters
   let paramCount = 0;
   for (const [filterKey, filterVal] of Object.entries(normalizedFilters)) {
-    if (filterKey === 'datefrom' || filterKey === 'dateto' || filterKey === 'genericcolumn' || filterKey === 'genericvalue') continue;
+    if (filterKey === 'datefrom' || filterKey === 'dateto' || filterKey === 'genericcolumn' || filterKey === 'genericvalue' || filterKey === 'customrules') continue;
     if (!filterVal && filterVal !== 0) continue;
 
     const colName = resolveColumn(filterKey, connectionId, cachedColumns);
@@ -103,7 +185,7 @@ export function buildWhereClause(filters, connectionId, cachedColumns) {
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   if (where) logger.info(`\n[SQL Query]\n  WHERE: ${where}\n  PARAMS: ${JSON.stringify(params)}`);
-  return { where, params };
+  return { where, params, conditions };
 }
 
 export function getPeriodDateRange(period) {
@@ -157,7 +239,7 @@ export function getPreviousPeriodDateRange(currentRange) {
 
 export async function fetchStatsForRange(activeIds, filters, cachedColumns) {
   const allStats = await Promise.all(activeIds.map(async (connId) => {
-    const { where, params } = buildWhereClause(filters, connId, cachedColumns);
+    const { where, params, conditions } = buildWhereClause(filters, connId, cachedColumns, { excludeDates: true });
     const viewName = getFullyQualifiedView(connId);
     const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
     const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;
@@ -171,8 +253,13 @@ export async function fetchStatsForRange(activeIds, filters, cachedColumns) {
       { key: 'country', sql: `SELECT toString(country) as country, count() as cnt FROM ${viewName} ${where} GROUP BY country ORDER BY cnt DESC LIMIT 10` },
       { key: 'app', sql: `SELECT toString(application) as application, count() as cnt FROM ${viewName} ${where} GROUP BY application ORDER BY cnt DESC LIMIT 10` },
       { key: 'org', sql: `SELECT toString(organization) as organization, count() as cnt FROM ${viewName} ${where} GROUP BY organization ORDER BY cnt DESC LIMIT 10` },
-      { key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} WHERE log_date >= toDate(now() - interval 7 day) GROUP BY log_date, bras ORDER BY log_date ASC` },
     ];
+
+    // Fix bras_daily: use a clean combined WHERE clause
+    const dailyConditions = ['log_date >= toDate(now() - interval 7 day)', ...conditions];
+    const dailyWhere = `WHERE ${dailyConditions.join(' AND ')}`;
+    queryDefs.push({ key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} ${dailyWhere} GROUP BY log_date, bras ORDER BY log_date ASC` });
+
     if (hourlyCol) {
       queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
     }
@@ -180,9 +267,17 @@ export async function fetchStatsForRange(activeIds, filters, cachedColumns) {
     const results = [];
     for (const def of queryDefs) {
       try {
-        const res = await client.query({ query: def.sql, params, format: 'JSON', abort_signal: controller.signal });
+        // We must ensure we are using the correct params for the specific query
+        // For bras_daily, we use the same params as other queries because the placeholders are identical
+        const res = await client.query({
+          query: def.sql,
+          params: params,
+          format: 'JSON',
+          abort_signal: controller.signal
+        });
         results.push(await res.json());
       } catch (e) {
+        logger.error(`[Stats Query Error] ${def.key}: ${e.message}`);
         results.push({ data: [] });
       }
     }

@@ -42,7 +42,7 @@ export async function runWarrantMonitor(cachedColumns) {
 
         if (conditions.length === 0) continue;
 
-        const queryParams = {};
+        const queryParams = [];
         const whereClauses = [];
 
         for (let i = 0; i < conditions.length; i++) {
@@ -50,7 +50,6 @@ export async function runWarrantMonitor(cachedColumns) {
           const resolvedCol = resolveColumn(cond.col, conn.id, cachedColumns);
           if (!resolvedCol) continue;
 
-          const paramName = `p${i}`;
           let val = cond.val;
           let op = cond.op;
 
@@ -64,12 +63,12 @@ export async function runWarrantMonitor(cachedColumns) {
           if (colMatch && (colMatch.type.includes('UInt') || colMatch.type.includes('Int'))) {
             const numVal = parseInt(val, 10);
             if (!isNaN(numVal)) {
-              whereClauses.push(`${resolvedCol} ${effectiveOp} {${paramName}:Int64}`);
-              queryParams[paramName] = numVal;
+              whereClauses.push(`${resolvedCol} ${effectiveOp} ?`);
+              queryParams.push(numVal);
             }
           } else {
-            whereClauses.push(`toString(${resolvedCol}) ${effectiveOp} {${paramName}:String}`);
-            queryParams[paramName] = String(val);
+            whereClauses.push(`toString(${resolvedCol}) ${effectiveOp} ?`);
+            queryParams.push(String(val));
           }
         }
 
