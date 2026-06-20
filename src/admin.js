@@ -3,9 +3,16 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { showToast } from './toast.js';
+import {
+  adminGetConnections, adminSaveConnection, adminUpdateConnection, adminDeleteConnection,
+  adminGetUsers, adminSaveUser, adminUpdateUser, adminDeleteUser,
+  adminGetWarrants, adminSaveWarrant, adminUpdateWarrant, adminDeleteWarrant,
+  adminGetSettings, adminSaveSettings
+} from './api.js';
 
 let currentEditingConnId = null;
 let currentEditingUserId = null;
+let currentEditingWarrantId = null;
 
 export function initAdmin() {
   const btnAdmin = document.getElementById('btn-admin');
@@ -33,7 +40,7 @@ export function initAdmin() {
     };
   });
 
-// Initialization
+  // Initialization
   loadConnections();
   loadUsers();
   loadWarrants();
@@ -45,10 +52,7 @@ export function initAdmin() {
 
 async function loadWarrants() {
   try {
-    const res = await fetch('/api/admin/warrants', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const data = await res.json();
+    const data = await adminGetWarrants();
     const tbody = document.getElementById('warrant-body');
     tbody.innerHTML = data.map(w => `
       <tr class="${w.active ? '' : 'opacity-50'}">
@@ -69,28 +73,17 @@ async function loadWarrants() {
 
 window.deleteWarrant = async (id) => {
   try {
-    const res = await fetch(`/api/admin/warrants/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    if (res.ok) {
-      showToast('Warrant deleted', 'success');
-      loadWarrants();
-    } else {
-      const errData = await res.json();
-      showToast(errData.error || 'Error deleting warrant', 'error');
-    }
+    await adminDeleteWarrant(id);
+    showToast('Warrant deleted', 'success');
+    loadWarrants();
   } catch (err) {
-    showToast('Error deleting warrant', 'error');
+    showToast(err.message || 'Error deleting warrant', 'error');
   }
 };
 
 window.editWarrant = async (id) => {
   try {
-    const res = await fetch('/api/admin/warrants', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const warrants = await res.json();
+    const warrants = await adminGetWarrants();
     const warrant = warrants.find(w => w.id === id);
     if (!warrant) return;
 
@@ -106,8 +99,6 @@ window.editWarrant = async (id) => {
     showToast('Failed to load warrant details', 'error');
   }
 };
-
-let currentEditingWarrantId = null;
 
 function initWarrantModal() {
   const modal = document.getElementById('warrant-modal');
@@ -134,53 +125,32 @@ function initWarrantModal() {
       active: document.getElementById('war-active').checked,
     };
 
-    const method = currentEditingWarrantId ? 'PUT' : 'POST';
-    const url = currentEditingWarrantId ? `/api/admin/warrants/${currentEditingWarrantId}` : '/api/admin/warrants';
-
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        showToast(currentEditingWarrantId ? 'Warrant updated' : 'Warrant saved', 'success');
-        modal.classList.add('hidden');
-        loadWarrants();
+      if (currentEditingWarrantId) {
+        await adminUpdateWarrant(currentEditingWarrantId, body);
+        showToast('Warrant updated', 'success');
       } else {
-        const errData = await res.json();
-        showToast(errData.error || 'Error saving warrant', 'error');
+        await adminSaveWarrant(body);
+        showToast('Warrant saved', 'success');
       }
+      modal.classList.add('hidden');
+      loadWarrants();
     } catch (err) {
-      showToast('Error saving warrant', 'error');
+      showToast(err.message || 'Error saving warrant', 'error');
     }
   };
 }
 
 async function loadSystemSettings() {
   try {
-    const res = await fetch('/api/admin/settings', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const settings = await res.json();
+    const settings = await adminGetSettings();
     const debugSetting = settings.find(s => s.key === 'debug_mode');
     const checkbox = document.getElementById('setting-debug-mode');
     if (checkbox) {
       checkbox.checked = debugSetting ? debugSetting.value === 'true' : true;
       checkbox.onchange = async () => {
         try {
-          await fetch('/api/admin/settings', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-            },
-            body: JSON.stringify({ key: 'debug_mode', value: checkbox.checked })
-          });
+          await adminSaveSettings({ key: 'debug_mode', value: checkbox.checked });
           showToast('Debug mode updated', 'success');
         } catch (e) {
           showToast('Failed to update debug mode', 'error');
@@ -194,14 +164,7 @@ async function loadSystemSettings() {
       periodSelect.value = periodSetting ? periodSetting.value : 'today';
       periodSelect.onchange = async () => {
         try {
-          await fetch('/api/admin/settings', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-            },
-            body: JSON.stringify({ key: 'stats_period', value: periodSelect.value })
-          });
+          await adminSaveSettings({ key: 'stats_period', value: periodSelect.value });
           showToast('Stats period updated', 'success');
         } catch (e) {
           showToast('Failed to update stats period', 'error');
@@ -215,48 +178,27 @@ async function loadSystemSettings() {
 
 window.deleteConn = async (id) => {
   try {
-    const res = await fetch(`/api/admin/connections/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-
-    if (res.ok) {
-      showToast('Connection deleted', 'success');
-      loadConnections();
-    } else {
-      const errData = await res.json();
-      showToast(errData.error || 'Error deleting connection', 'error');
-    }
+    await adminDeleteConnection(id);
+    showToast('Connection deleted', 'success');
+    loadConnections();
   } catch (err) {
-    showToast('Error deleting connection', 'error');
+    showToast(err.message || 'Error deleting connection', 'error');
   }
 };
 
 window.deleteUser = async (id) => {
   try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-
-    if (res.ok) {
-      showToast('User deleted', 'success');
-      loadUsers();
-    } else {
-      const errData = await res.json();
-      showToast(errData.error || 'Error deleting user', 'error');
-    }
+    await adminDeleteUser(id);
+    showToast('User deleted', 'success');
+    loadUsers();
   } catch (err) {
-    showToast('Error deleting user', 'error');
+    showToast(err.message || 'Error deleting user', 'error');
   }
 };
 
 async function loadConnections() {
   try {
-    const res = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const data = await res.json();
+    const data = await adminGetConnections();
     const tbody = document.getElementById('conn-body');
     tbody.innerHTML = data.map(c => `
       <tr>
@@ -276,10 +218,7 @@ async function loadConnections() {
 
 async function loadUsers() {
   try {
-    const res = await fetch('/api/admin/users', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const data = await res.json();
+    const data = await adminGetUsers();
     const tbody = document.getElementById('user-body');
     tbody.innerHTML = data.map(u => `
       <tr>
@@ -299,10 +238,7 @@ async function loadUsers() {
 
 window.editConn = async (id) => {
   try {
-    const res = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const conns = await res.json();
+    const conns = await adminGetConnections();
     const conn = conns.find(c => c.id === id);
     if (!conn) return;
 
@@ -322,10 +258,7 @@ window.editConn = async (id) => {
 
 window.editUser = async (id) => {
   try {
-    const res = await fetch('/api/admin/users', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const users = await res.json();
+    const users = await adminGetUsers();
     const user = users.find(u => u.id === id);
     if (!user) return;
 
@@ -335,10 +268,7 @@ window.editUser = async (id) => {
     document.getElementById('user-role').value = user.role;
 
     // Load connections for the dropdown
-    const connRes = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const conns = await connRes.json();
+    const conns = await adminGetConnections();
     const select = document.getElementById('user-conn-select');
     select.innerHTML = conns.map(c => `<option value="${c.id}" ${user.connectionIds?.includes(c.id) ? 'selected' : ''}>${c.label}</option>`).join('');
 
@@ -374,29 +304,18 @@ function initConnectionModal() {
       database: document.getElementById('conn-db').value,
     };
 
-    const method = currentEditingConnId ? 'PUT' : 'POST';
-    const url = currentEditingConnId ? `/api/admin/connections/${currentEditingConnId}` : '/api/admin/connections';
-
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        showToast(currentEditingConnId ? 'Connection updated' : 'Connection saved', 'success');
-        modal.classList.add('hidden');
-        loadConnections();
+      if (currentEditingConnId) {
+        await adminUpdateConnection(currentEditingConnId, body);
+        showToast('Connection updated', 'success');
       } else {
-        const errData = await res.json();
-        showToast(errData.error || 'Error saving connection', 'error');
+        await adminSaveConnection(body);
+        showToast('Connection saved', 'success');
       }
+      modal.classList.add('hidden');
+      loadConnections();
     } catch (err) {
-      showToast('Error saving connection', 'error');
+      showToast(err.message || 'Error saving connection', 'error');
     }
   };
 }
@@ -411,10 +330,7 @@ function initUserModal() {
     document.getElementById('user-password').value = '';
     document.getElementById('user-role').value = 'user';
 
-    const res = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const conns = await res.json();
+    const conns = await adminGetConnections();
     const select = document.getElementById('user-conn-select');
     select.innerHTML = conns.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
 
@@ -431,29 +347,18 @@ function initUserModal() {
       connectionIds: Array.from(document.getElementById('user-conn-select').selectedOptions).map(opt => parseInt(opt.value, 10)),
     };
 
-    const method = currentEditingUserId ? 'PUT' : 'POST';
-    const url = currentEditingUserId ? `/api/admin/users/${currentEditingUserId}` : '/api/admin/users';
-
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        showToast(currentEditingUserId ? 'User updated' : 'User created', 'success');
-        modal.classList.add('hidden');
-        loadUsers();
+      if (currentEditingUserId) {
+        await adminUpdateUser(currentEditingUserId, body);
+        showToast('User updated', 'success');
       } else {
-        const errData = await res.json();
-        showToast(errData.error || 'Error saving user', 'error');
+        await adminSaveUser(body);
+        showToast('User created', 'success');
       }
+      modal.classList.add('hidden');
+      loadUsers();
     } catch (err) {
-      showToast('Error saving user', 'error');
+      showToast(err.message || 'Error saving user', 'error');
     }
-  }
+  };
 }

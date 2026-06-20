@@ -24,7 +24,7 @@ function createRankWidget(title, data, valueKey) {
     return `
       <div class="rank-number">${index + 1}</div>
       <div class="rank-label">${title}</div>
-      <div class="rank-value" style="cursor:pointer" onclick="window.pivotToFilter('${valueKey}', '${item[valueKey]}')">${truncate(item[valueKey], 20)}</div>
+      <div class="rank-value" style="cursor:pointer" onclick="window.navigateToRecordsWithFilter('${valueKey}', '${item[valueKey]}')">${truncate(item[valueKey], 20)}</div>
       <div class="rank-count">${formatBigNumber(item.cnt)} hits</div>
     `;
   };
@@ -113,82 +113,99 @@ let hourlyChart = null;
 let trendChart = null;
 
 /**
- * Render charts section.
- * @param {Object} stats
+ * Render the basic structure for charts.
+ * This creates the containers once so they can be updated independently.
  */
-export function renderCharts(stats) {
+export function renderCharts() {
   const existing = document.getElementById('chart-row');
   const existingTrend = document.getElementById('trend-row');
   if (existing) existing.remove();
   if (existingTrend) existingTrend.remove();
 
-  const brasDaily = stats.brasDailyDistribution || [];
-  const hourly = stats.hourlyTraffic || [];
-
-  if (brasDaily.length === 0 && hourly.length === 0) return;
-
   const row = document.createElement('div');
   row.id = 'chart-row';
   row.className = 'chart-row';
-
-  if (brasDaily.length > 0) {
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    card.innerHTML = `
+  row.innerHTML = `
+    <div class="chart-card">
       <h3>BRAS Daily Distribution (Last 7 Days)</h3>
       <div class="chart-canvas-wrap"><canvas id="chart-bras-daily"></canvas></div>
-    `;
-    row.appendChild(card);
-  }
-
-  if (hourly.length > 0) {
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    card.innerHTML = `
+      <div id="inactive-bras-container" class="hidden" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-subtle)">
+      </div>
+    </div>
+    <div class="chart-card">
       <h3>Hourly Traffic Volume</h3>
       <div class="chart-canvas-wrap"><canvas id="chart-hourly"></canvas></div>
-    `;
-    row.appendChild(card);
-  }
-
+    </div>
+  `;
   DASHBOARD.insertAdjacentElement('afterend', row);
 
-  // Create a second row for Trends and Heatmap
   const trendRow = document.createElement('div');
   trendRow.id = 'trend-row';
   trendRow.className = 'chart-row';
-
-  if (stats.previousHourlyTraffic && stats.previousHourlyTraffic.length > 0) {
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    card.innerHTML = `
+  trendRow.innerHTML = `
+    <div class="chart-card">
       <h3>Traffic Trend (Current vs Previous)</h3>
       <div class="chart-canvas-wrap"><canvas id="chart-trend"></canvas></div>
-    `;
-    trendRow.appendChild(card);
-  }
-
-  if (stats.heatmap && Object.keys(stats.heatmap).length > 0) {
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    card.innerHTML = `
+    </div>
+    <div class="chart-card">
       <h3>Traffic Heatmap (30 Days)</h3>
       <div class="heatmap-scroll-wrap">
         <div id="heatmap-container" class="heatmap-container" style="display:grid; grid-template-columns: repeat(24, 1fr); gap:2px; padding:10px 0; font-family:var(--font-mono); font-size:0.6rem; color:var(--text-muted)">
         </div>
       </div>
-    `;
-    trendRow.appendChild(card);
+    </div>
+  `;
+  DASHBOARD.insertAdjacentElement('afterend', trendRow);
+}
+
+/**
+ * Update specific charts with provided data.
+ */
+export function updateBrasChart(data) {
+  if (!data || !data.distribution || data.distribution.length === 0) return;
+  drawBrasDailyChart(data.distribution);
+  updateInactiveBrasList(data.inactiveBras || []);
+}
+
+function updateInactiveBrasList(inactiveBras) {
+  const container = document.getElementById('inactive-bras-container');
+  if (!container) return;
+
+  if (inactiveBras.length === 0) {
+    container.classList.add('hidden');
+    return;
   }
 
-  DASHBOARD.insertAdjacentElement('afterend', trendRow);
+  container.classList.remove('hidden');
+  container.innerHTML = `
+    <div style="font-size: 0.7rem; font-weight: bold; color: var(--error); margin-bottom: 8px; text-transform: uppercase; display: flex; align-items: center; gap: 5px;">
+      <i class="fas fa-exclamation-triangle"></i> Inactive BRAS (No data last 7 days)
+    </div>
+    <div class="inactive-bras-list">
+      ${inactiveBras.map(item => `
+        <div class="inactive-bras-item">
+          <span class="bras-name">${truncate(item.bras, 25)}</span>
+          <span class="last-seen">Last seen: ${item.lastSeen}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 
-  requestAnimationFrame(() => {
-    drawBrasDailyChart(brasDaily);
-    drawHourlyChart(hourly);
-    if (stats.previousHourlyTraffic) drawTrendChart(hourly, stats.previousHourlyTraffic);
-    if (stats.heatmap) drawHeatmap(stats.heatmap);
-  });
+
+export function updateHourlyChart(data) {
+  if (!data || data.length === 0) return;
+  drawHourlyChart(data);
+}
+
+export function updateTrendChart(current, previous) {
+  if (!current || current.length === 0) return;
+  drawTrendChart(current, previous || []);
+}
+
+export function updateHeatmap(data) {
+  if (!data || Object.keys(data).length === 0) return;
+  drawHeatmap(data);
 }
 
 async function drawTrendChart(current, previous) {
@@ -307,7 +324,7 @@ async function ensureChartJS() {
 
 async function drawBrasDailyChart(brasDaily) {
   const canvas = document.getElementById('chart-bras-daily');
-  if (!canvas || brasDaily.length === 0) return;
+  if (!canvas || !brasDaily || brasDaily.length === 0) return;
   await ensureChartJS();
   if (protocolChart) protocolChart.destroy();
 

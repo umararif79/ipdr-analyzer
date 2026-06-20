@@ -244,6 +244,21 @@
             </div>
         </div>
         <div class="nav-group">
+            <div class="nav-group-title">Dashboard Analytics</div>
+            <a href="#stats-bras" class="nav-item" onclick="showSection('stats-bras')">
+                <span class="method-badge bg-get">GET</span> BRAS Distribution
+            </a>
+            <a href="#stats-hourly" class="nav-item" onclick="showSection('stats-hourly')">
+                <span class="method-badge bg-get">GET</span> Hourly Traffic
+            </a>
+            <a href="#stats-trend" class="nav-item" onclick="showSection('stats-trend')">
+                <span class="method-badge bg-get">GET</span> Traffic Trend
+            </a>
+            <a href="#stats-heatmap" class="nav-item" onclick="showSection('stats-heatmap')">
+                <span class="method-badge bg-get">GET</span> Traffic Heatmap
+            </a>
+        </div>
+        <div class="nav-group">
             <div class="nav-group-title">System</div>
             <a href="#health" class="nav-item active" onclick="showSection('health')">
                 <span class="method-badge bg-get">GET</span> Health
@@ -337,6 +352,130 @@
     </div>
 
     <div class="main-content">
+        <!-- BRAS DISTRIBUTION -->
+        <div id="stats-bras" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/bras-distribution
+                </div>
+            </div>
+            <div class="description">Returns daily distribution of records per BRAS for the last 7 days.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>date</td><td>string</td><td>ISO Date (YYYY-MM-DD)</td></tr>
+                            <tr><td>data</td><td>JSON</td><td>Map of { bras_label: count }</td></tr>
+                        </tbody>
+                    </table>
+                </div
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsBras()">Execute</button>
+                    <div id="res-stats-bras" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-bras">Status: -</span><span id="time-stats-bras">0ms</span></div>
+                        <pre id="body-stats-bras"></pre>
+                    </div>
+                </div
+            </div>
+        </div>
+
+        <!-- HOURLY TRAFFIC -->
+        <div id="stats-hourly" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/hourly-traffic
+                </div>
+            </div>
+            <div class="description">Returns traffic volume distributed by hour of the day.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>hour</td><td>integer</td><td>Hour of day (0-23)</td></tr>
+                            <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsHourly()">Execute</button>
+                    <div id="res-stats-hourly" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-hourly">Status: -</span><span id="time-stats-hourly">0ms</span></div>
+                        <pre id="body-stats-hourly"></pre>
+                    </div>
+                </div
+            </div>
+        </div>
+
+        <!-- TRAFFIC TREND -->
+        <div id="stats-trend" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/traffic-trend
+                </div>
+            </div>
+            <div class="description">Returns hourly traffic for current vs previous period for trend comparison.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>hour</td><td>integer</td><td>Hour of day (0-23)</td></tr>
+                            <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsTrend()">Execute</button>
+                    <div id="res-stats-trend" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-trend">Status: -</span><span id="time-stats-trend">0ms</span></div>
+                        <pre id="body-stats-trend"></pre>
+                    </div>
+                </div
+            </div>
+        </div>
+
+        <!-- HEATMAP -->
+        <div id="stats-heatmap" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/heatmap
+                </div>
+            </div>
+            <div class="description">Returns a 30-day traffic heatmap (Date x Hour).</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>key</td><td>string</td><td>Composite key "YYYY-MM-DD_H"</td></tr>
+                            <tr><td>value</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsHeatmap()">Execute</button>
+                    <div id="res-stats-heatmap" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-heatmap">Status: -</span><span id="time-stats-heatmap">0ms</span></div>
+                        <pre id="body-stats-heatmap"></pre>
+                    </div>
+                </div
+            </div>
+        </div>
+
         <!-- HEALTH -->
         <div id="health" class="endpoint-section active">
             <div class="endpoint-header">
@@ -1531,6 +1670,23 @@
             const body = JSON.parse(document.getElementById('req-admin-notif-post').value);
             const res = await callApi('/api/admin/notifications', 'POST', body);
             renderRes('admin-notif-post', res);
+        }
+
+        async function execStatsBras() {
+            const res = await callApi('/api/stats/bras-distribution');
+            renderRes('stats-bras', res);
+        }
+        async function execStatsHourly() {
+            const res = await callApi('/api/stats/hourly-traffic');
+            renderRes('stats-hourly', res);
+        }
+        async function execStatsTrend() {
+            const res = await callApi('/api/stats/traffic-trend');
+            renderRes('stats-trend', res);
+        }
+        async function execStatsHeatmap() {
+            const res = await callApi('/api/stats/heatmap');
+            renderRes('stats-heatmap', res);
         }
     </script>
 </body>

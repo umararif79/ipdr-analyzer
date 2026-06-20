@@ -3,10 +3,29 @@
    Wires up all modules: API, Filters, Table, Dashboard, Export
    ═══════════════════════════════════════════════════════════════════ */
 
-import { checkHealth, fetchColumns, queryData, fetchStats } from './api.js';
+import {
+  checkHealth,
+  fetchColumns,
+  queryData,
+  fetchStats,
+  fetchRelated,
+  getFavorites,
+  saveFavorite,
+  getPreferences,
+  logout,
+  getAlerts,
+  resolveAlert,
+  resolveAllAlerts,
+  clearAlerts,
+  adminGetConnections,
+  fetchBrasDistribution,
+  fetchHourlyTraffic,
+  fetchTrafficTrend,
+  fetchHeatmap
+} from './api.js';
 import { renderFilters, getFilterValues, resetFilters, setDefaultFilterValue, getStartOfToday, getStartOfYesterday, getStartOfLastWeek, applyFilterValues } from './filters.js';
 import { setColumns, renderRows, updatePagination, showLoading, onSort, getSortState } from './table.js';
-import { renderDashboard, updateDashboard, renderCharts } from './dashboard.js';
+import { renderDashboard, updateDashboard, renderCharts, updateBrasChart, updateHourlyChart, updateTrendChart, updateHeatmap } from './dashboard.js';
 import { downloadCSV } from './export.js';
 import { showToast } from './toast.js';
 import { loadSettings, saveSettings, getSettings, isAdmin } from './settings.js';
@@ -26,10 +45,7 @@ window.pivotToFilter = pivotToFilter;
 export async function showRelatedEvents(srcIp, timestamp) {
   showLoading();
   try {
-    const res = await fetch(`/api/related?src_ip=${encodeURIComponent(srcIp)}&timestamp=${encodeURIComponent(timestamp)}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const data = await res.json();
+    const data = await fetchRelated(srcIp, timestamp);
 
     if (data.length === 0) {
       showToast('No related events found in the 5m window', 'info');
@@ -63,6 +79,36 @@ let columns = [];
 let currentPage = 1;
 let currentPageSize = 50;
 let totalPages = 1;
+const isDashboardPage = window.location.pathname.includes('dashboard.html');
+
+/**
+ * Syncs filters between pages via URL parameters.
+ */
+function serializeFilters(filters) {
+  const params = new URLSearchParams();
+  for (const [key, val] of Object.entries(filters)) {
+    if (val === undefined || val === null || val === '') continue;
+    params.set(key, key === 'customrules' ? JSON.stringify(val) : val);
+  }
+  return params.toString();
+}
+
+function deserializeFilters(queryString) {
+  if (!queryString) return {};
+  const params = new URLSearchParams(queryString);
+  const filters = {};
+  for (const [key, val] of params.entries()) {
+    filters[key] = key === 'customrules' ? JSON.parse(val) : val;
+  }
+  return filters;
+}
+
+function navigateWithFilters(targetPage, overrides = {}) {
+  const currentFilters = getFilterValues();
+  const mergedFilters = { ...currentFilters, ...overrides };
+  const query = serializeFilters(mergedFilters);
+  window.location.href = `${targetPage}${query ? '?' + query : ''}`;
+}
 
 // ── Favorites Logic ───────────────────────────────────────────────
 async function initFavorites() {
@@ -83,13 +129,8 @@ async function initFavorites() {
       .filter(opt => opt.value !== '')
       .map(opt => ({ id: opt.value, name: opt.textContent }));
 
-    // This is a simplification; ideally we'd store the values in the select or fetch them.
-    // Since we already have the favorites list in the dropdown, we should fetch the specific favorite.
     try {
-      const res = await fetch('/api/filters/favorites', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-      });
-      const data = await res.json();
+      const data = await getFavorites();
       const selected = data.find(f => f.id == favId);
       if (selected) {
         applyFilterValues(JSON.parse(selected.filter_values));
@@ -115,21 +156,9 @@ async function initFavorites() {
     }
 
     try {
-      const res = await fetch('/api/filters/favorites', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-        },
-        body: JSON.stringify({ name, filter_values: filterValues })
-      });
-      if (res.ok) {
-        showToast('Favorite saved!', 'success');
-        await loadFavorites();
-      } else {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
+      await saveFavorite(name, filterValues);
+      showToast('Favorite saved!', 'success');
+      await loadFavorites();
     } catch (e) {
       showToast(`Save failed: ${e.message}`, 'error');
     }
@@ -141,11 +170,7 @@ async function loadFavorites() {
   if (!select) return;
 
   try {
-    const res = await fetch('/api/filters/favorites', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const favorites = await res.json();
-
+    const favorites = await getFavorites();
     select.innerHTML = '<option value="">— Saved Filters —</option>' +
       favorites.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
   } catch (err) {
@@ -153,12 +178,41 @@ async function loadFavorites() {
   }
 }
 
-// ── Favorites Logic ───────────────────────────────────────────────// ── Init ───────────────────────────────────────────────────────
+async function loadGlobalCharts(reason = 'periodic-refresh') {
+  console.log(`[DEBUG] loadGlobalCharts triggered by: ${reason}`);
+
+  // Ensure containers are rendered first
+  renderCharts();
+
+  try {
+    // Fetch all graph data in parallel
+    const [brasData, hourlyData, trendData, heatmapData] = await Promise.all([
+      fetchBrasDistribution(),
+      fetchHourlyTraffic(),
+      fetchTrafficTrend(),
+      fetchHeatmap()
+    ]);
+
+    // Update each chart independently
+    updateBrasChart(brasData);
+    updateHourlyChart(hourlyData);
+    updateTrendChart(hourlyData, trendData);
+    updateHeatmap(heatmapData);
+
+  } catch (err) {
+    console.error('Global charts load failed:', err);
+    if (reason === 'initial-load') {
+      showToast('Failed to load global analytics', 'error', 5000);
+    }
+  }
+}
+
 async function initializeApp() {
   // 1. Auth Check - MUST be first
   const token = localStorage.getItem('ipdr_token');
-  if (!token) {
-    window.location.href = '/login';
+  const isLoginPage = window.location.pathname === '/login.html' || window.location.pathname === '/login';
+  if (!token && !isLoginPage) {
+    window.location.href = '/login.html';
     return;
   }
 
@@ -174,9 +228,6 @@ async function initializeApp() {
     if (logoH1 && userSettings.globalParams?.orgName) {
       logoH1.textContent = userSettings.globalParams.orgName;
     }
-
-    // Render dashboard skeleton immediately
-    renderDashboard();
 
     // Health check
     await doHealthCheck();
@@ -194,43 +245,53 @@ async function initializeApp() {
       await initConnectionSelector();
 
       // Load User Preferences
-      const prefRes = await fetch('/api/preferences', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-      });
-      const prefs = await prefRes.json();
+      const prefs = await getPreferences();
 
       // Apply column visibility
-      console.log(`[DEBUG] All discovered columns:`, columns.map(c => c.name));
-      console.log(`[DEBUG] User visible columns setting:`, userSettings.visibleColumns);
-
       const visibleColNames = userSettings.visibleColumns.length > 0
         ? userSettings.visibleColumns
         : columns.map(c => c.name);
 
       const filteredCols = columns.filter(c => visibleColNames.includes(c.name));
-
-      // Fallback: if no columns match visibility settings, show all discovered columns
       const finalCols = filteredCols.length > 0 ? filteredCols : columns;
-      console.log(`[DEBUG] Final columns to render:`, finalCols.map(c => c.name));
 
-      // Initialize UI
-      setColumns(finalCols);
-      renderFilters(columns);
-      setDefaultFilterValue('dateFrom', getStartOfToday());
+      // Initialize Shared UI
       initSettingsModal(columns);
-      initPeriodSelector();
-      initFavorites();
       initAdmin();
       initAlerts();
 
-      // Set initial active period to 'Today'
-      document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
-      const todayBtn = document.querySelector('.btn-period[data-period="today"]');
-      if (todayBtn) todayBtn.classList.add('active');
+      // Handle Page-Specific Init
+      if (isDashboardPage) {
+        renderDashboard();
+        initPeriodSelector();
 
-      // Load initial data and stats
-      loadData('initial-load');
-      loadStats('initial-load');
+        // Apply URL filters
+        const urlFilters = deserializeFilters(window.location.search.substring(1));
+        if (Object.keys(urlFilters).length > 0) {
+          applyFilterValues(urlFilters);
+        }
+
+        await loadStats('initial-load');
+        await loadGlobalCharts('initial-load');
+      } else {
+        setColumns(finalCols);
+        renderFilters(columns);
+        setDefaultFilterValue('dateFrom', getStartOfToday());
+        initFavorites();
+
+        // Apply URL filters
+        const urlFilters = deserializeFilters(window.location.search.substring(1));
+        if (Object.keys(urlFilters).length > 0) {
+          applyFilterValues(urlFilters);
+        }
+
+        // Set initial active period to 'Today'
+        document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
+        const todayBtn = document.querySelector('.btn-period[data-period="today"]');
+        if (todayBtn) todayBtn.classList.add('active');
+
+        loadData('initial-load');
+      }
 
     } catch (err) {
       showToast(`Column discovery failed: ${err.message}`, 'error', 8000);
@@ -300,18 +361,25 @@ document.addEventListener('DOMContentLoaded', () => {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-        });
+        await logout();
       } catch (e) {
         console.error('Logout API failed', e);
       } finally {
         localStorage.removeItem('ipdr_token');
         localStorage.removeItem('ipdr_user');
-        window.location.href = '/login';
+        window.location.href = '/login.html';
       }
     });
+  }
+
+  const dashboardBtn = document.getElementById('btn-go-dashboard');
+  if (dashboardBtn) {
+    dashboardBtn.onclick = () => navigateWithFilters('dashboard.html');
+  }
+
+  const recordsBtn = document.getElementById('btn-go-records');
+  if (recordsBtn) {
+    recordsBtn.onclick = () => navigateWithFilters('index.html');
   }
 
   const sizeSelect = document.getElementById('page-size-select');
@@ -335,7 +403,16 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('btn-search')?.click();
     }
   });
+
+  // Global charts refresh every 15 minutes
+  if (isDashboardPage) {
+    setInterval(() => loadGlobalCharts('periodic-refresh'), 15 * 60 * 1000);
+  }
 });
+
+window.navigateToRecordsWithFilter = (column, value) => {
+  navigateWithFilters('index.html', { [column]: value });
+};
 
 // ── Period Selector Logic ──────────────────────────────────────
 function initPeriodSelector() {
@@ -449,11 +526,7 @@ async function initConnectionSelector() {
   if (!select) return;
 
   try {
-    const res = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const conns = await res.json();
-
+    const conns = await adminGetConnections();
     select.innerHTML = conns.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
     if (conns.length === 0) {
       showToast('No connections assigned to user', 'warning');
@@ -515,10 +588,11 @@ async function loadStats(reason = 'unknown') {
   console.log(`[DEBUG] loadStats triggered by: ${reason}`);
   try {
     const filters = getFilterValues();
-    const stats = await fetchStats(filters);
+    const connectionId = document.getElementById('filter-connection')?.value || '0';
+    const stats = await fetchStats(filters, connectionId);
     if (!stats) return;
     updateDashboard(stats);
-    renderCharts(stats);
+    // Global charts are now handled by loadGlobalCharts to reduce DB load
   } catch (err) {
     console.error('Stats load failed:', err);
   }
@@ -564,14 +638,9 @@ async function initAlerts() {
 
   btnResolveAll.onclick = async () => {
     try {
-      const res = await fetch('/api/alerts/resolve-all', {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-      });
-      if (res.ok) {
-        showToast('All alerts resolved', 'success');
-        updateAlerts();
-      }
+      await resolveAllAlerts();
+      showToast('All alerts resolved', 'success');
+      updateAlerts();
     } catch (err) {
       showToast('Failed to resolve alerts', 'error');
     }
@@ -580,17 +649,9 @@ async function initAlerts() {
   btnClear.onclick = async () => {
     if (!confirm('Clear all alert history?')) return;
     try {
-      const res = await fetch('/api/alerts/clear', {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-      });
-      if (res.ok) {
-        showToast('Alert history cleared', 'success');
-        updateAlerts();
-      } else {
-        const err = await res.json();
-        showToast(err.error || 'Error clearing alerts', 'error');
-      }
+      await clearAlerts();
+      showToast('Alert history cleared', 'success');
+      updateAlerts();
     } catch (err) {
       showToast('Failed to clear alerts', 'error');
     }
@@ -603,10 +664,7 @@ async function initAlerts() {
 
 async function updateAlerts() {
   try {
-    const res = await fetch('/api/alerts', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const alerts = await res.json();
+    const alerts = await getAlerts();
     const countBadge = document.getElementById('alert-count');
     const list = document.getElementById('alerts-list');
 
@@ -631,18 +689,9 @@ async function updateAlerts() {
 
 window.resolveAlert = async (id) => {
   try {
-    const res = await fetch(`/api/alerts/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}`
-      },
-      body: JSON.stringify({ resolved: true })
-    });
-    if (res.ok) {
-      showToast('Alert resolved', 'success');
-      updateAlerts();
-    }
+    await resolveAlert(id, true);
+    showToast('Alert resolved', 'success');
+    updateAlerts();
   } catch (err) {
     showToast('Failed to resolve alert', 'error');
   }

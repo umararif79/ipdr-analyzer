@@ -1,5 +1,16 @@
 # Project History
 
+## v1.9 (2026-06-20)
+- **Features**:
+  - Decoupled analytics dashboard into a separate `dashboard.html` page.
+  - Implemented URL-based filter synchronization between main records and dashboard.
+  - Upgraded BRAS distribution to a 7-day stacked bar chart.
+  - Added Inactive BRAS monitoring and highlighting.
+  - Modularized graph APIs (`/api/stats/bras-distribution`, `/api/stats/hourly-traffic`, `/api/stats/traffic-trend`, `/api/stats/heatmap`).
+- **Bug Fixes**:
+  - Fixed BRAS distribution chart rendering and missing API documentation.
+  - Resolved server crashes (Access Violation) on Windows.
+
 ## v1.8 (2026-06-18)
 - **Bug Fixes**: 
   - Resolved `Sustitution not set` error in custom filters by switching from named parameters to safe string interpolation.
@@ -7,6 +18,7 @@
 - **Features**:
   - Enhanced SQL debug logging in the terminal for precise execution monitoring.
   - Refactored `buildWhereClause` to support conditional date exclusion for trend queries.
+
 
 ## v1.7 (Enterprise Upgrades & Stability)
 - Enterprise upgrades and general stability fixes.
