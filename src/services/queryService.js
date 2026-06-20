@@ -239,7 +239,7 @@ export function getPreviousPeriodDateRange(currentRange) {
 
 export async function fetchStatsForRange(activeIds, filters, cachedColumns) {
   const allStats = await Promise.all(activeIds.map(async (connId) => {
-    const { where, params, conditions } = buildWhereClause(filters, connId, cachedColumns, { excludeDates: true });
+    const { where, params, conditions } = buildWhereClause(filters, connId, cachedColumns);
     const viewName = getFullyQualifiedView(connId);
     const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
     const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;

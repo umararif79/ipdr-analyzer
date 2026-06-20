@@ -18,6 +18,7 @@ import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodD
 import { logAuditAction } from './src/services/auditService.js';
 import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitoringService.js';
 import { validate, schemas } from './src/services/validationService.js';
+import proxmoxService from './src/services/proxmoxService.js';
 
 if (!process.env.JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
@@ -49,6 +50,26 @@ const VIEW = 'view_parsed_logs';
 
 app.get('/api/debug/secret', (req, res) => {
   res.json({ secret: process.env.JWT_SECRET || 'ipdr-secret-key-2026' });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running' });
+});
+
+app.get('/api/health', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const healthResults = await Promise.all(activeIds.map(async (id) => {
+      try {
+        const client = await getClickHouseClient(id);
+        const res = await client.query({ query: 'SELECT 1', format: 'JSON' });
+        await res.json();
+        return { id, status: 'ok' };
+      } catch (err) { return { id, status: 'error', message: err.message }; }
+    }));
+    const allOk = healthResults.every(r => r.status === 'ok');
+    res.json({ status: allOk ? 'ok' : 'partial_error', connections: healthResults, timestamp: new Date().toISOString() });
+  } catch (err) { res.status(400).json({ status: 'error', message: err.message }); }
 });
 
 app.get('/', (req, res) => { res.sendFile(path.join(process.cwd(), 'index.html')); });
@@ -332,6 +353,38 @@ app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manage
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
+
+app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const nodes = await proxmoxService.getNodes();
+    res.json(nodes);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Nodes: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster nodes' });
+  }
+});
+
+app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const vms = await proxmoxService.getVMs();
+    res.json(vms);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] VMs: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster VMs' });
+  }
+});
+
+app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const bras = await proxmoxService.getStaticBrasIpSet();
+    res.json(bras);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Static BRAS IPSet: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
+  }
+});
+
 app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings').all();
@@ -401,20 +454,188 @@ app.get('/api/related', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/health', authMiddleware, async (req, res) => {
+app.get('/api/stats/global', authMiddleware, async (req, res) => {
   try {
     const activeIds = await resolveActiveConnections(req);
-    const healthResults = await Promise.all(activeIds.map(async (id) => {
+    if (!activeIds || activeIds.length === 0) {
+      return res.json({ summary: {}, brasDistribution: [], topDestinations: [], topCountries: [], topApps: [], topOrgs: [], hourlyTraffic: [], previousHourlyTraffic: [], heatmap: {} });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    // Fetch all three sets of stats in parallel to avoid sequential blocking and reduce overall request time
+    const [stats, currentDayStats, prevDayStats] = await Promise.all([
+      fetchStatsForRange(activeIds, { datefrom: yesterdayStr, dateto: today }, cachedColumns),
+      fetchStatsForRange(activeIds, { datefrom: today, dateto: today }, cachedColumns),
+      fetchStatsForRange(activeIds, { datefrom: yesterdayStr, dateto: yesterdayStr }, cachedColumns)
+    ]);
+
+    // Merge results
+    const finalStats = {
+      ...stats,
+      hourlyTraffic: currentDayStats.hourlyTraffic,
+      previousHourlyTraffic: prevDayStats.hourlyTraffic,
+    };
+
+    // Traffic Heatmap (30 Days) - handled separately as it's a large query
+    const heatmapData = await Promise.all(activeIds.map(async (connId) => {
       try {
-        const client = await getClickHouseClient(id);
-        const res = await client.query({ query: 'SELECT 1', format: 'JSON' });
-        await res.json();
-        return { id, status: 'ok' };
-      } catch (err) { return { id, status: 'error', message: err.message }; }
+        const client = await getClickHouseClient(connId);
+        const viewName = getFullyQualifiedView(connId);
+        const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+        const result = await client.query({
+          query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) GROUP BY date, hour ORDER BY date, hour`,
+          format: 'JSON'
+        });
+        return await result.json();
+      } catch (e) {
+        logger.error(`[Global Heatmap Error] Connection ${connId}: ${e.message}`);
+        return { data: [] };
+      }
     }));
-    const allOk = healthResults.every(r => r.status === 'ok');
-    res.json({ status: allOk ? 'ok' : 'partial_error', connections: healthResults, timestamp: new Date().toISOString() });
-  } catch (err) { res.status(400).json({ status: 'error', message: err.message }); }
+
+    const mergedHeatmap = heatmapData.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
+      return acc;
+    }, {});
+
+    finalStats.heatmap = mergedHeatmap;
+
+    res.json(finalStats);
+  } catch (err) {
+    logger.error(`[Global Stats Error] ${err.stack || err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/bras-distribution', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+
+    const distributionResults = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const query = `
+        SELECT
+            toDate(log_datetime) as date,
+            device_label as bras,
+            count() as cnt
+        FROM ${viewName}
+        WHERE log_datetime >= today() - 6
+        GROUP BY date, bras
+        ORDER BY date ASC`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+
+    const inactiveResults = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const query = `
+        SELECT
+            device_label as bras,
+            MAX(toDate(log_datetime)) as last_seen
+        FROM ${viewName}
+        GROUP BY bras
+        HAVING last_seen < today() - 6
+        ORDER BY last_seen ASC`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+
+    // Process distribution data
+    const allRows = distributionResults.flatMap(r => r.data || []);
+    const dateMap = {};
+    allRows.forEach(row => {
+      if (!dateMap[row.date]) dateMap[row.date] = {};
+      dateMap[row.date][row.bras] = (dateMap[row.date][row.bras] || 0) + row.cnt;
+    });
+    const distribution = Object.entries(dateMap).map(([date, data]) => ({ date, data })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Process inactive BRAS
+    const inactiveBras = inactiveResults.flatMap(r => r.data || []).map(item => ({
+      bras: item.bras,
+      lastSeen: item.last_seen
+    }));
+
+    res.json({ distribution, inactiveBras });
+  } catch (err) {
+    logger.error(`[BRAS Dist Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const final = Object.entries(merged).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt }));
+    res.json(final.sort((a, b) => a.hour - b.hour));
+  } catch (err) {
+    logger.error(`[Hourly Traffic Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/traffic-trend', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now() - interval 1 day) AND ${tsCol} < toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const final = Object.entries(merged).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt }));
+    res.json(final.sort((a, b) => a.hour - b.hour));
+  } catch (err) {
+    logger.error(`[Traffic Trend Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/heatmap', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) GROUP BY date, hour ORDER BY date, hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
+      return acc;
+    }, {});
+    res.json(merged);
+  } catch (err) {
+    logger.error(`[Heatmap Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 async function initColumns(connectionId) {
@@ -586,7 +807,7 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
         const client = await getClickHouseClient(connId);
         const viewName = getFullyQualifiedView(connId);
         const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-S laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
+// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
         const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns, { excludeDates: true });
         const whereClause = where ? ` AND ${where.replace('WHERE', '').trim()}` : '';
         const result = await client.query({
@@ -595,7 +816,7 @@ S laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plag
           format: 'JSON'
         });
         return await result.json();
-S laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
+// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
       } catch (e) {
         logger.error(`[Heatmap Error] Connection ${connId}: ${e.message}`);
         return { data: [] };

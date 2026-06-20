@@ -1,5 +1,31 @@
 # Project Versions
 
+# Project Versioning
+## Current Version: v1.10
+**Release Date:** 2026-06-20
+
+### v1.10 Changes
+- **BRAS UI Polish**: Updated the BRAS Management interface to fully adhere to the enterprise design system.
+- **Table Enhancements**: Added center-alignment for serial numbers and a dynamic record count footer.
+- **Visual Styling**: Implemented custom CSS for CIDR meta-chips with themed blue accents for better visual distinction.
+- **Code Cleanup**: Refactored `bras-list.html` to remove inline styles and improve maintainability.
+
+### v1.9 Changes
+- **Dashboard Decoupling**: Moved all analytics graphs and rank widgets to a dedicated `dashboard.html` page for better performance and clarity.
+- **URL-Based Sync**: Implemented filter synchronization between the records view and dashboard via URL parameters.
+- **BRAS Analytics Upgrade**: 
+  - Upgraded BRAS daily distribution to a stacked bar chart.
+  - Added "Inactive BRAS" monitoring and highlighting for devices without data in the last 7 days.
+- **API Modularity**: Split the monolithic `/api/stats` call into dedicated granular endpoints (`/api/stats/bras-distribution`, etc.) to prevent complex queries from blocking the UI.
+- **Stability**: Fixed BRAS chart rendering and resolved server crashes (Access Violation) on Windows.
+
+### v1.8 Changes
+- **Trend Graphs Fix**: Fixed 'Traffic Heatmap' and 'BRAS Daily Distribution' to respect their intended 30-day and 7-day lookback periods regardless of the selected date range in the filter panel.
+- **Custom Filters Stability**: Resolved `Substitution not set` crashes by implementing direct string interpolation with proper escaping for custom rule values, bypassing `@clickhouse/client` parameter substitution bugs.
+- **Debug Enhanced**: Improved server-side debug logging to show exactly what is sent to ClickHouse.
+- **SQL Optimization**: Cleaned up the `bras_daily` query logic in `queryService.js`.
+
+
 ## v1.7 (2026-05-30)
 ### New Features
 - **Service-Oriented Architecture**: Backend refactored into specialized services (`connectionService`, `queryService`, `auditService`, `monitoringService`, `notificationService`, `validationService`) for improved maintainability and scalability.

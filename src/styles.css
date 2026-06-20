@@ -1087,6 +1087,27 @@ td.cell-timestamp {
   height: 100% !important;
 }
 
+.inactive-bras-list {
+  height: 160px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.inactive-bras-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.inactive-bras-item .bras-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.inactive-bras-item .last-seen {
+  color: var(--error);
+}
+
 /* ── Skeleton Loader ────────────────────────────────────────────── */
 .skeleton {
   background: linear-gradient(90deg,
@@ -1186,10 +1207,163 @@ td.cell-timestamp {
   .chart-row { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 768px) {
-  .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
-  .pagination {
-    flex-direction: column;
-    gap: 12px;
-  }
+/* ── Rank Widget Styles ───────────────────────────────────────────── */
+.rank-widget {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.rank-widget:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+}
+.rank-widget .rank-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.rank-widget .rank-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.rank-widget .rank-count {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--accent-color);
+  opacity: 0.8;
+}
+.rank-widget .rank-number {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--accent-color);
+  opacity: 0.5;
+}
+.rank-widget .expanded-list {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-secondary);
+  z-index: 10;
+  padding: 15px;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+.rank-widget.expanded .expanded-list {
+  transform: translateY(0);
+}
+.rank-widget .close-expanded {
+  position: absolute;
+  top: 5px; right: 5px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.rank-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.rank-item .rank-pos { color: var(--accent-color); font-weight: bold; margin-right: 8px; }
+
+/* Animation for Rotating Items */
+.fade-out { opacity: 0; transform: translateY(-10px); }
+.fade-in { opacity: 1; transform: translateY(0); }
+
+/* ── Alert Notifications ────────────────────────────────────────────── */
+.alert-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #ff4d4f;
+  color: white;
+  font-size: 0.6rem;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 10px;
+  min-width: 12px;
+  text-align: center;
+  border: 1px solid white;
+}
+.btn-icon { position: relative; }
+
+#alerts-panel {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  width: 350px;
+  max-height: 500px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  z-index: 1000;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.alerts-header {
+  padding: 15px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8f9fa;
+}
+.alerts-list {
+  overflow-y: auto;
+  flex: 1;
+}
+.alert-item {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.alert-item:hover { background: #f0f7ff; }
+.alert-item .alert-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.alert-item .alert-time {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.alert-item .alert-sample {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: #f5f5f5;
+  padding: 4px;
+  border-radius: 3px;
+  display: block;
+  margin-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ── BRAS Table Extensions ─────────────────────────────────────────── */
+#data-table td.cell-ip .meta-chip {
+  color: var(--accent-primary);
+  border-color: rgba(59, 130, 246, 0.2);
+  background: rgba(59, 130, 246, 0.05);
+  font-weight: 500;
 }
