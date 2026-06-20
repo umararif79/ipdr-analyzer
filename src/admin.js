@@ -7,8 +7,10 @@ import {
   adminGetConnections, adminSaveConnection, adminUpdateConnection, adminDeleteConnection,
   adminGetUsers, adminSaveUser, adminUpdateUser, adminDeleteUser,
   adminGetWarrants, adminSaveWarrant, adminUpdateWarrant, adminDeleteWarrant,
-  adminGetSettings, adminSaveSettings
+  adminGetSettings, adminSaveSettings,
+  fetchProxmoxNodes, fetchProxmoxVMs
 } from './api.js';
+
 
 let currentEditingConnId = null;
 let currentEditingUserId = null;
@@ -36,19 +38,27 @@ export function initAdmin() {
       document.querySelectorAll('#admin-panel .tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('#admin-panel .tab-content').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
-      document.getElementById(btn.dataset.tab).classList.add('active');
+      const tabId = btn.dataset.tab;
+      document.getElementById(tabId).classList.add('active');
+
+      if (tabId === 'admin-bras') {
+        loadProxmoxData();
+      }
     };
   });
+
 
   // Initialization
   loadConnections();
   loadUsers();
   loadWarrants();
   loadSystemSettings();
+  initProxmox();
   initConnectionModal();
   initUserModal();
   initWarrantModal();
 }
+
 
 async function loadWarrants() {
   try {
@@ -235,6 +245,110 @@ async function loadUsers() {
     showToast('Failed to load users', 'error');
   }
 }
+
+async function initProxmox() {
+  const btnRefresh = document.getElementById('btn-refresh-bras');
+  if (!btnRefresh) return;
+
+  btnRefresh.onclick = async () => {
+    await loadProxmoxData();
+  };
+}
+
+async function loadProxmoxData() {
+  try {
+    const nodesBody = document.getElementById('proxmox-nodes-body');
+    const vmsBody = document.getElementById('proxmox-vms-body');
+    if (!nodesBody || !vmsBody) return;
+
+    nodesBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Loading nodes...</td></tr>';
+    vmsBody.innerHTML = '<tr><td colspan="6" style="text-align:center">Loading VMs...</td></tr>';
+
+    const [nodes, vms] = await Promise.all([
+      fetchProxmoxNodes(),
+      fetchProxmoxVMs()
+    ]);
+
+    nodesBody.innerHTML = nodes.map(n => `
+      <tr>
+        <td>${n.node}</td>
+        <td><span class="badge ${n.status === 'running' ? 'bg-success' : 'bg-danger'}">${n.status}</span></td>
+        <td>${Math.round(n.cpu * 100)}%</td>
+        <td>${Math.round(n.mem * 100)}%</td>
+      </tr>
+    `).join('');
+
+    vmsBody.innerHTML = vms.map(v => `
+      <tr style="cursor:pointer" onclick="viewBrasIpSet('${v.node}', '${v.vmid}')">
+        <td>${v.vmid}</td>
+        <td>${v.name}</td>
+        <td><span class="badge ${v.status === 'running' ? 'bg-success' : 'bg-danger'}">${v.status}</span></td>
+        <td>${v.node}</td>
+        <td>${Math.round(v.cpu * 100)}%</td>
+        <td>${Math.round(v.mem * 100)}%</td>
+      </tr>
+    `).join('');
+
+  } catch (err) {
+    showToast(`Proxmox load failed: ${err.message}`, 'error');
+  }
+}
+
+window.viewBrasIpSet = async (node, vmid) => {
+  try {
+    showToast(`Fetching IPSet for VM ${vmid}...`, 'info');
+    const ipset = await fetchProxmoxIpSet(node, vmid);
+
+    if (!ipset || ipset.length === 0) {
+      showToast('No IPSet entries found', 'warning');
+      return;
+    }
+
+    const details = ipset.map(item => `
+      <tr>
+        <td>${item.cidr}</td>
+        <td>${item.comment || '-'}</td>
+      </tr>
+    `).join('');
+
+    const modalHtml = `
+      <div class="modal-overlay" id="ipset-modal">
+        <div class="modal-content glass-panel" style="max-width:600px">
+          <div class="modal-header">
+            <h2>IPSet: BRAS (VM ${vmid})</h2>
+            <button class="btn btn-icon close-ipset-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="table-container">
+              <table class="admin-table">
+                <thead>
+                  <tr><th class="text-left">CIDR</th><th class="text-left">Comment</th></tr>
+                </thead>
+                <tbody>${details}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    document.querySelector('.close-ipset-modal').onclick = () => {
+      document.getElementById('ipset-modal').remove();
+    };
+
+    // Close on overlay click
+    document.getElementById('ipset-modal').onclick = (e) => {
+      if (e.target.id === 'ipset-modal') {
+        document.getElementById('ipset-modal').remove();
+      }
+    };
+
+  } catch (err) {
+    showToast(`Failed to fetch IPSet: ${err.message}`, 'error');
+  }
+};
 
 window.editConn = async (id) => {
   try {

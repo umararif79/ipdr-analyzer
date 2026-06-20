@@ -372,6 +372,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const brasMgmtBtn = document.getElementById('btn-bras-mgmt');
+  if (brasMgmtBtn) {
+    brasMgmtBtn.onclick = () => {
+      window.location.href = 'bras-list.html';
+    };
+  }
   const dashboardBtn = document.getElementById('btn-go-dashboard');
   if (dashboardBtn) {
     dashboardBtn.onclick = () => navigateWithFilters('dashboard.html');

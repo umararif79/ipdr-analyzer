@@ -302,3 +302,20 @@ export async function adminSaveSettings(settings) {
   });
   return res.json();
 }
+
+// ── Proxmox Proxy ──────────────────────────────────────────────────────────
+
+export async function fetchProxmoxNodes() {
+  const res = await request('/proxmox/nodes');
+  return res.json();
+}
+
+export async function fetchProxmoxVMs() {
+  const res = await request('/proxmox/vms');
+  return res.json();
+}
+
+export async function fetchProxmoxIpSet(node, vmid) {
+  const res = await request(`/proxmox/ipset/${node}/${vmid}`);
+  return res.json();
+}

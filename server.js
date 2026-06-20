@@ -18,6 +18,7 @@ import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodD
 import { logAuditAction } from './src/services/auditService.js';
 import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitoringService.js';
 import { validate, schemas } from './src/services/validationService.js';
+import proxmoxService from './src/services/proxmoxService.js';
 
 if (!process.env.JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
@@ -350,6 +351,38 @@ app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manage
     db.prepare('DELETE FROM alerts').run();
     res.json({ message: 'Alert history cleared' });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
+
+app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const nodes = await proxmoxService.getNodes();
+    res.json(nodes);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Nodes: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster nodes' });
+  }
+});
+
+app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const vms = await proxmoxService.getVMs();
+    res.json(vms);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] VMs: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster VMs' });
+  }
+});
+
+app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const bras = await proxmoxService.getStaticBrasIpSet();
+    res.json(bras);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Static BRAS IPSet: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
+  }
 });
 
 app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {

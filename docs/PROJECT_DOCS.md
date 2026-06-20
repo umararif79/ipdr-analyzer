@@ -1,4 +1,4 @@
-# IPDR Log Analyzer - Project Documentation (v1.7)
+# IPDR Log Analyzer - Project Documentation (v1.10)
 
 ## 1. Overview
 The IPDR Log Analyzer is a professional web-based tool designed to query, filter, and analyze large-scale network logs stored in ClickHouse. It provides a user-friendly interface to search through parsed logs, visualize traffic patterns via a dashboard, and manage multiple ClickHouse connections with role-based access control.

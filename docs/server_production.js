@@ -18,6 +18,7 @@ import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodD
 import { logAuditAction } from './src/services/auditService.js';
 import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitoringService.js';
 import { validate, schemas } from './src/services/validationService.js';
+import proxmoxService from './src/services/proxmoxService.js';
 
 if (!process.env.JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
@@ -25,7 +26,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
-console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.3`);
+console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 1.10`);
 app.use(cors());
 app.use(compression());
 app.use(express.json());
@@ -346,6 +347,39 @@ app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manage
     db.prepare('DELETE FROM alerts').run();
     res.json({ message: 'Alert history cleared' });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
+
+app.get('/api/proxmox/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const nodes = await proxmoxService.getNodes();
+    res.json(nodes);
+  } catch (err) {
+    logger.error(`[Proxmox Proxy Error] Nodes: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch Proxmox nodes' });
+  }
+});
+
+app.get('/api/proxmox/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const vms = await proxmoxService.getVMs();
+    res.json(vms);
+  } catch (err) {
+    logger.error(`[Proxmox Proxy Error] VMs: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch Proxmox VMs' });
+  }
+});
+
+app.get('/api/proxmox/ipset/:node/:vmid', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { node, vmid } = req.params;
+    const ipset = await proxmoxService.getBrasIpSet(node, vmid);
+    res.json(ipset);
+  } catch (err) {
+    logger.error(`[Proxmox Proxy Error] IPSet ${node}/${vmid}: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch IPSet data' });
+  }
 });
 
 app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {

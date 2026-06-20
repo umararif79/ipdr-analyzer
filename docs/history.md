@@ -1,5 +1,13 @@
 # Project History
 
+## v1.10 (2026-06-20)
+- **Features**:
+  - Polished BRAS Management UI with enterprise glassmorphism design.
+  - Improved table layout with center-aligned index and dynamic record count footer.
+  - Enhanced CSS for CIDR chips using themed blue accents.
+- **Bug Fixes**:
+  - Removed redundant inline styles in `bras-list.html` and fixed table alignment issues.
+
 ## v1.9 (2026-06-20)
 - **Features**:
   - Decoupled analytics dashboard into a separate `dashboard.html` page.

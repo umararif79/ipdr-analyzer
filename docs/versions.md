@@ -1,8 +1,14 @@
 # Project Versions
 
 # Project Versioning
-## Current Version: v1.9
+## Current Version: v1.10
 **Release Date:** 2026-06-20
+
+### v1.10 Changes
+- **BRAS UI Polish**: Updated the BRAS Management interface to fully adhere to the enterprise design system.
+- **Table Enhancements**: Added center-alignment for serial numbers and a dynamic record count footer.
+- **Visual Styling**: Implemented custom CSS for CIDR meta-chips with themed blue accents for better visual distinction.
+- **Code Cleanup**: Refactored `bras-list.html` to remove inline styles and improve maintainability.
 
 ### v1.9 Changes
 - **Dashboard Decoupling**: Moved all analytics graphs and rank widgets to a dedicated `dashboard.html` page for better performance and clarity.

@@ -20,8 +20,8 @@ Connect to your server and pull the latest stable release branch.
 cd /path/to/your/ipdr-analyzer
 
 # Ensure you are on the latest release branch
-git checkout release/v1.8
-git pull origin release/v1.8
+git checkout release/v1.10
+git pull origin release/v1.10
 ```
 
 ### 2. Update Dependencies
@@ -66,7 +66,7 @@ Check the server logs for the boot message:
 If you encounter issues after upgrading:
 1. **Rollback**: If the server fails to start, you can return to the previous state:
    ```bash
-   git checkout release/v1.7
+   git checkout release/v1.9
    npm install
    pm2 restart all
    ```
