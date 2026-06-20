@@ -1,8 +1,17 @@
 # Project Versions
 
 # Project Versioning
-## Current Version: v1.8
-**Release Date:** 2026-06-18
+## Current Version: v1.9
+**Release Date:** 2026-06-20
+
+### v1.9 Changes
+- **Dashboard Decoupling**: Moved all analytics graphs and rank widgets to a dedicated `dashboard.html` page for better performance and clarity.
+- **URL-Based Sync**: Implemented filter synchronization between the records view and dashboard via URL parameters.
+- **BRAS Analytics Upgrade**: 
+  - Upgraded BRAS daily distribution to a stacked bar chart.
+  - Added "Inactive BRAS" monitoring and highlighting for devices without data in the last 7 days.
+- **API Modularity**: Split the monolithic `/api/stats` call into dedicated granular endpoints (`/api/stats/bras-distribution`, etc.) to prevent complex queries from blocking the UI.
+- **Stability**: Fixed BRAS chart rendering and resolved server crashes (Access Violation) on Windows.
 
 ### v1.8 Changes
 - **Trend Graphs Fix**: Fixed 'Traffic Heatmap' and 'BRAS Daily Distribution' to respect their intended 30-day and 7-day lookback periods regardless of the selected date range in the filter panel.
