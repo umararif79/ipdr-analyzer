@@ -129,8 +129,7 @@
   </div>
 
   <script>
-    const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
-    const API_URL = `${apiBase}/api/infra/bras-list`;
+    const API_URL = '/api/infra/bras-list';
     let allData = [];
     let filteredData = [];
     let sortCol = 'sr';

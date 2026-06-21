@@ -385,6 +385,44 @@ app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manage
   }
 });
 
+app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr, deviceName, deviceLabel } = req.body;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    const result = await proxmoxService.addBras(cidr, deviceName || '—', deviceLabel || '—');
+    res.json({ data: result.data, message: 'BRAS entry added successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Add BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to add BRAS entry' });
+  }
+});
+
+app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr, deviceName, deviceLabel } = req.body;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required in request body' });
+
+    const result = await proxmoxService.updateBras(cidr, deviceName || '—', deviceLabel || '—');
+    res.json({ data: result.data, message: 'BRAS entry updated successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Update BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to update BRAS entry' });
+  }
+});
+
+app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr } = req.query;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required as a query parameter' });
+    const result = await proxmoxService.deleteBras(cidr);
+    res.json({ data: result.data, message: 'BRAS entry deleted successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Delete BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to delete BRAS entry' });
+  }
+});
+
 app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings').all();
@@ -841,7 +879,7 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  🔒 IPDR API Server running on http://localhost:${PORT}`);
   console.log(`  📊 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}`);
   console.log(`  📁 Database:   ${process.env.CLICKHOUSE_DATABASE || 'syslogdb'}`);
