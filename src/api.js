@@ -2,7 +2,7 @@
    API Client — Wraps all fetch calls to the Express backend
    ═══════════════════════════════════════════════════════════════════ */
 
-const BASE = '/api';
+const BASE = window.location.port === '3001' ? '/api' : `http://${window.location.hostname}:3001/api`;
 
 async function request(url, options = {}) {
   const token = localStorage.getItem('ipdr_token');

@@ -360,6 +360,15 @@
             <a href="#infra-bras" class="nav-item" onclick="showSection('infra-bras')">
                 <span class="method-badge bg-get">GET</span> BRAS IPSet
             </a>
+            <a href="#infra-bras-post" class="nav-item" onclick="showSection('infra-bras-post')">
+                <span class="method-badge bg-post">POST</span> Add BRAS
+            </a>
+            <a href="#infra-bras-put" class="nav-item" onclick="showSection('infra-bras-put')">
+                <span class="method-badge bg-put">PUT</span> Update BRAS
+            </a>
+            <a href="#infra-bras-del" class="nav-item" onclick="showSection('infra-bras-del')">
+                <span class="method-badge bg-del">DEL</span> Delete BRAS
+            </a>
         </div>
     </div>
 
@@ -383,7 +392,7 @@
                             <tr><td>data</td><td>JSON</td><td>Map of { bras_label: count }</td></tr>
                         </tbody>
                     </table>
-                </div
+                </div>
                 <div class="playground">
                     <div class="section-title">Try it out</div>
                     <button class="btn-execute" onclick="execStatsBras()">Execute</button>
@@ -391,7 +400,7 @@
                         <div class="response-meta"><span id="stat-stats-bras">Status: -</span><span id="time-stats-bras">0ms</span></div>
                         <pre id="body-stats-bras"></pre>
                     </div>
-                </div
+                </div>
             </div>
         </div>
 
@@ -414,7 +423,7 @@
                             <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
                         </tbody>
                     </table>
-                </div
+                </div>
                 <div class="playground">
                     <div class="section-title">Try it out</div>
                     <button class="btn-execute" onclick="execStatsHourly()">Execute</button>
@@ -422,7 +431,7 @@
                         <div class="response-meta"><span id="stat-stats-hourly">Status: -</span><span id="time-stats-hourly">0ms</span></div>
                         <pre id="body-stats-hourly"></pre>
                     </div>
-                </div
+                </div>
             </div>
         </div>
 
@@ -445,7 +454,7 @@
                             <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
                         </tbody>
                     </table>
-                </div
+                </div>
                 <div class="playground">
                     <div class="section-title">Try it out</div>
                     <button class="btn-execute" onclick="execStatsTrend()">Execute</button>
@@ -453,7 +462,7 @@
                         <div class="response-meta"><span id="stat-stats-trend">Status: -</span><span id="time-stats-trend">0ms</span></div>
                         <pre id="body-stats-trend"></pre>
                     </div>
-                </div
+                </div>
             </div>
         </div>
 
@@ -476,7 +485,7 @@
                             <tr><td>value</td><td>number</td><td>Number of hits</td></tr>
                         </tbody>
                     </table>
-                </div
+                </div>
                 <div class="playground">
                     <div class="section-title">Try it out</div>
                     <button class="btn-execute" onclick="execStatsHeatmap()">Execute</button>
@@ -484,7 +493,7 @@
                         <div class="response-meta"><span id="stat-stats-heatmap">Status: -</span><span id="time-stats-heatmap">0ms</span></div>
                         <pre id="body-stats-heatmap"></pre>
                     </div>
-                </div
+                </div>
             </div>
         </div>
 
@@ -1309,8 +1318,8 @@
             <div class="endpoint-header">
                 <div class="path-bar">
                     <span class="method-badge bg-get">GET</span> /api/infra/bras-list
-                </div
-            </div
+                </div>
+            </div>
             <div class="description">Fetches the static 'bras' IPSet from Proxmox (Node: pve1, VMID: 205). Handles authentication and ticket management automatically.</div>
             <div class="api-grid">
                 <div class="docs-panel">
@@ -1324,16 +1333,127 @@
                             <tr><td>digest</td><td>string</td><td>Internal Proxmox hash</td></tr>
                         </tbody>
                     </table>
-                </div
+                </div>
                 <div class="playground">
                     <div class="section-title">Try it out</div>
-                    <button class="btn-execute" onclick="execProxmoxBras()">Execute</button>
+                    <button class="btn-execute" onclick="execInfraBras()">Execute</button>
                     <div id="res-infra-bras" class="response-area hidden">
                         <div class="response-meta"><span id="stat-infra-bras">Status: -</span><span id="time-infra-bras">0ms</span></div>
                         <pre id="body-infra-bras"></pre>
-                    </div
-                </div
-            </div
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADD BRAS -->
+        <div id="infra-bras-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Adds a new CIDR entry to the BRAS IPSet in Proxmox.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The IP range (Required)</td></tr>
+                            <tr><td>deviceName</td><td>string</td><td>Name of the device</td></tr>
+                            <tr><td>deviceLabel</td><td>string</td><td>Label/Alias for the device</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-infra-bras-post" rows="8">{
+  "cidr": "10.10.10.0/24",
+  "deviceName": "BRAS-01",
+  "deviceLabel": "City-Center"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasPost()">Execute</button>
+                    <div id="res-infra-bras-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-post">Status: -</span><span id="time-infra-bras-post">0ms</span></div>
+                        <pre id="body-infra-bras-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UPDATE BRAS -->
+        <div id="infra-bras-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Updates metadata for an existing CIDR in the BRAS IPSet.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The IP range to update (Required)</td></tr>
+                            <tr><td>deviceName</td><td>string</td><td>Updated name of the device</td></tr>
+                            <tr><td>deviceLabel</td><td>string</td><td>Updated label for the device</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-infra-bras-put" rows="8">{
+  "cidr": "10.10.10.0/24",
+  "deviceName": "BRAS-01-Updated",
+  "deviceLabel": "City-Center-New"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasPut()">Execute</button>
+                    <div id="res-infra-bras-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-put">Status: -</span><span id="time-infra-bras-put">0ms</span></div>
+                        <pre id="body-infra-bras-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DELETE BRAS -->
+        <div id="infra-bras-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Removes a CIDR entry from the BRAS IPSet.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Query Parameters</div>
+                    <table>
+                        <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The CIDR to delete (e.g. 10.10.10.0/24)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>CIDR (Query Param)</label>
+                        <input type="text" id="req-infra-bras-del-cidr" value="10.10.10.0/24" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasDel()">Execute</button>
+                    <div id="res-infra-bras-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-del">Status: -</span><span id="time-infra-bras-del">0ms</span></div>
+                        <pre id="body-infra-bras-del"></pre>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- PROXMOX NODES -->
@@ -1588,6 +1708,7 @@
         async function callApi(endpoint, method = 'GET', body = null) {
             const start = performance.now();
             try {
+                const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
                 const token = document.getElementById('api-token').value;
                 if (!token) {
                     throw new Error('Missing Bearer Token. Please paste your JWT in the sidebar.');
@@ -1601,7 +1722,7 @@
                 if (body) {
                     options.body = JSON.stringify(body);
                 }
-                const res = await fetch(endpoint, options);
+                const res = await fetch(`${apiBase}${endpoint}`, options);
 
                 let data;
                 const contentType = res.headers.get('content-type');
@@ -1799,6 +1920,30 @@
             const res = await callApi('/api/stats/heatmap');
             renderRes('stats-heatmap', res);
         }
+        async function execInfraBrasPost() {
+            try {
+                const body = JSON.parse(document.getElementById('req-infra-bras-post').value);
+                const res = await callApi('/api/infra/bras', 'POST', body);
+                renderRes('infra-bras-post', res);
+            } catch (err) {
+                renderRes('infra-bras-post', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            }
+        }
+        async function execInfraBrasPut() {
+            try {
+                const body = JSON.parse(document.getElementById('req-infra-bras-put').value);
+                const res = await callApi('/api/infra/bras', 'PUT', body);
+                renderRes('infra-bras-put', res);
+            } catch (err) {
+                renderRes('infra-bras-put', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            }
+        }
+        async function execInfraBrasDel() {
+            const cidr = document.getElementById('req-infra-bras-del-cidr').value;
+            const res = await callApi(`/api/infra/bras?cidr=${cidr}`, 'DELETE');
+            renderRes('infra-bras-del', res);
+        }
+
         async function execInfraNodes() {
             const res = await callApi('/api/infra/nodes');
             renderRes('infra-nodes', res);
