@@ -51,6 +51,10 @@
           BRAS IPSet List
         </h2>
         <div style="display:flex; gap:12px; align-items:center">
+          <button id="btn-add-bras" class="btn btn-primary" style="background:var(--accent-gradient); box-shadow:var(--accent-glow)">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Add BRAS
+          </button>
           <div class="search-wrap" style="position:relative; display:flex; align-items:center">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="position:absolute; left:10px; color:var(--text-muted)"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             <input type="text" id="quick-search" placeholder="Quick search..." style="padding-left:32px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:6px 12px; font-size:0.85rem; width:250px">
@@ -74,6 +78,7 @@
               <th class="text-left sortable" data-col="cidr">CIDR <span class="sort-indicator">↕</span></th>
               <th class="text-left sortable" data-col="name">Device Name <span class="sort-indicator">↕</span></th>
               <th class="text-left sortable" data-col="label">Device Label <span class="sort-indicator">↕</span></th>
+              <th class="text-right">Actions</th>
             </tr>
           </thead>
           <tbody id="bras-body"></tbody>
@@ -91,8 +96,41 @@
 
   <div id="toast-container"></div>
 
+  <!-- Modal for Add/Edit BRAS -->
+  <div id="bras-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-size: 1rem; font-weight: 600;">Add New BRAS</h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M1 12L13 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="bras-form" style="display:flex; flex-direction:column; gap:16px">
+          <div class="filter-group">
+            <label>CIDR Address</label>
+            <input type="text" id="modal-cidr" placeholder="e.g. 1.1.1.1/32" required>
+          </div>
+          <div class="filter-group">
+            <label>Device Name</label>
+            <input type="text" id="modal-name" placeholder="e.g. BRAS-01" required>
+          </div>
+          <div class="filter-group">
+            <label>Device Label</label>
+            <input type="text" id="modal-label" placeholder="e.g. North Zone" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+        <button id="btn-save-bras" class="btn btn-primary btn-sm">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const API_URL = '/api/infra/bras-list';
+    const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
+    const API_URL = `${apiBase}/api/infra/bras-list`;
     let allData = [];
     let filteredData = [];
     let sortCol = 'sr';
@@ -105,6 +143,100 @@
       toast.textContent = msg;
       container.appendChild(toast);
       setTimeout(() => toast.remove(), 3000);
+    }
+
+    let currentModalMode = 'add';
+    let currentEditingCidr = null;
+
+    function openModal(mode, data = null) {
+      currentModalMode = mode;
+      const modal = document.getElementById('bras-modal');
+      const title = document.getElementById('modal-title');
+      const cidrInput = document.getElementById('modal-cidr');
+      const nameInput = document.getElementById('modal-name');
+      const labelInput = document.getElementById('modal-label');
+
+      if (mode === 'edit') {
+        title.textContent = 'Edit BRAS Entry';
+        currentEditingCidr = data.cidr;
+        cidrInput.value = data.cidr;
+        cidrInput.disabled = true;
+        nameInput.value = data.name;
+        labelInput.value = data.label;
+      } else {
+        title.textContent = 'Add New BRAS';
+        currentEditingCidr = null;
+        cidrInput.value = '';
+        cidrInput.disabled = false;
+        nameInput.value = '';
+        labelInput.value = '';
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('bras-modal').classList.add('hidden');
+    }
+
+    async function saveBras() {
+      const token = localStorage.getItem('ipdr_token');
+      const cidr = document.getElementById('modal-cidr').value;
+      const name = document.getElementById('modal-name').value;
+      const label = document.getElementById('modal-label').value;
+
+      if (!cidr || !name || !label) {
+        showToast('Please fill all fields', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btn-save-bras');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const endpoint = currentModalMode === 'add' ? '/api/infra/bras' : `/api/infra/bras/${currentEditingCidr}`;
+        const method = currentModalMode === 'add' ? 'POST' : 'PUT';
+
+        const response = await fetch(endpoint, {
+          method,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ cidr, deviceName: name, deviceLabel: label })
+        });
+
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        showToast(`BRAS ${currentModalMode === 'add' ? 'added' : 'updated'} successfully`, 'success');
+        closeModal();
+        await fetchBrasList();
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+      }
+    }
+
+    async function deleteBras(cidr) {
+      if (!confirm(`Are you sure you want to delete BRAS ${cidr}?`)) return;
+
+      const token = localStorage.getItem('ipdr_token');
+      try {
+        const response = await fetch(`/api/infra/bras/${cidr}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        showToast(`BRAS ${cidr} deleted successfully`, 'success');
+        await fetchBrasList();
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      }
     }
 
     function processData(raw) {
@@ -155,6 +287,16 @@
           <td class="text-left cell-ip"><code class="meta-chip">${row.cidr}</code></td>
           <td class="text-left"><strong style="color:var(--text-primary)">${row.name}</strong></td>
           <td class="text-left text-muted" style="font-size:0.78rem">${row.label}</td>
+          <td class="text-right actions-cell">
+            <button class="btn btn-icon btn-sm" onclick="openModal('edit', ${JSON.stringify(row).replace(/"/g, '&quot;')})">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2L10 6.5L4.5 11V2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Edit
+            </button>
+            <button class="btn btn-icon btn-sm text-danger" onclick="deleteBras('${row.cidr}')">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4h6v6H3V4zm3 4v2M6 2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Delete
+            </button>
+          </td>
         </tr>
       `).join('');
     }
@@ -229,6 +371,8 @@
 
       document.getElementById('btn-back').onclick = () => window.location.href = '/index.html';
       document.getElementById('btn-refresh').onclick = fetchBrasList;
+      document.getElementById('btn-add-bras').onclick = () => openModal('add');
+      document.getElementById('btn-save-bras').onclick = saveBras;
       document.getElementById('btn-logout').onclick = () => {
         localStorage.clear();
         window.location.href = '/login.html';
