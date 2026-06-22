@@ -879,6 +879,7 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  🔒 IPDR API Server running on http://localhost:${PORT}`);
   console.log(`  📊 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}`);
