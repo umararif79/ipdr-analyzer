@@ -1,5 +1,15 @@
 # Project History
 
+## v2.1 (2026-06-22)
+- **Features**:
+  - Implemented a comprehensive Audit Log system to track administrative changes with a new `audit-logs.html` UI and `/api/admin/audit` endpoint.
+  - Bound the backend API to localhost to hide port 3001 from external access.
+- **Bug Fixes**:
+  - Restored root file serving by removing conflicting production stabilization changes.
+  - Resolved 404 errors by implementing a dynamic port 3001 in the API base URL.
+  - Fixed SQL syntax errors in `WarrantMonitor` to prevent system crashes.
+  - Resolved Audit API sorting issues (corrected `created_at` to `timestamp`).
+
 ## v1.10 (2026-06-20)
 - **Features**:
   - Polished BRAS Management UI with enterprise glassmorphism design.

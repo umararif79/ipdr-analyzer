@@ -1,8 +1,14 @@
 # Project Versions
 
 # Project Versioning
-## Current Version: v1.10
-**Release Date:** 2026-06-20
+## Current Version: v2.1
+**Release Date:** 2026-06-22
+
+### v2.1 Changes
+- **Audit Log System**: Comprehensive auditing for administrative actions with a new UI page and dedicated API.
+- **Security Hardening**: Backend API bound to localhost to hide port 3001.
+- **Production Stability**: Restored root file serving and resolved 404 errors by implementing dynamic port 3001 in API base URL.
+- **Bug Fixes**: Resolved SQL syntax errors in `WarrantMonitor` and fixed Audit API sorting/alias issues.
 
 ### v1.10 Changes
 - **BRAS UI Polish**: Updated the BRAS Management interface to fully adhere to the enterprise design system.
