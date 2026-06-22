@@ -132,8 +132,7 @@
             errorEl.textContent = 'Authenticating...';
 
             try {
-                const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
-                const res = await fetch(`${apiBase}/api/auth/login`, {
+                const res = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password })

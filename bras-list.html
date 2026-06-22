@@ -66,6 +66,17 @@
         </div>
       </div>
 
+      <div id="platform-legend" style="display:flex; gap:20px; margin-bottom:20px; padding:12px; background:var(--bg-secondary); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-size:0.85rem">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="platform-tag" style="background:#3b82f6; color:#fff; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.7rem">WC</span>
+          <span style="color:var(--text-muted)">Wavecomm Hardware</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="platform-tag" style="background:#f59e0b; color:#fff; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.7rem">RS</span>
+          <span style="color:var(--text-muted)">Reseller Panel</span>
+        </div>
+      </div>
+
       <div id="table-container" class="table-container" style="margin-top: 20px;">
         <div id="loading-state" class="table-loading">
           <div class="spinner"></div>
@@ -75,6 +86,7 @@
           <thead>
             <tr>
               <th class="text-center sortable" data-col="sr">Sr No. <span class="sort-indicator">↕</span></th>
+              <th class="text-left sortable" data-col="platform">Platform <span class="sort-indicator">↕</span></th>
               <th class="text-left sortable" data-col="cidr">CIDR <span class="sort-indicator">↕</span></th>
               <th class="text-left sortable" data-col="name">Device Name <span class="sort-indicator">↕</span></th>
               <th class="text-left sortable" data-col="label">Device Label <span class="sort-indicator">↕</span></th>
@@ -112,6 +124,17 @@
             <input type="text" id="modal-cidr" placeholder="e.g. 1.1.1.1/32" required>
           </div>
           <div class="filter-group">
+            <label>Platform</label>
+            <div style="display:flex; gap:16px; align-items:center; padding:4px 0">
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:400">
+                <input type="radio" name="platform" value="WC" checked style="accent-color:var(--accent-primary)"> WC
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:400">
+                <input type="radio" name="platform" value="RS" style="accent-color:var(--accent-primary)"> RS
+              </label>
+            </div>
+          </div>
+          <div class="filter-group">
             <label>Device Name</label>
             <input type="text" id="modal-name" placeholder="e.g. BRAS-01" required>
           </div>
@@ -129,11 +152,10 @@
   </div>
 
   <script>
-    const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
-    const API_URL = `${apiBase}/api/infra/bras-list`;
+    const API_URL = '/api/infra/bras-list';
     let allData = [];
     let filteredData = [];
-    let sortCol = 'sr';
+    let sortCol = 'platform';
     let sortDir = 'asc';
 
     async function showToast(msg, type = 'info') {
@@ -161,6 +183,10 @@
         currentEditingCidr = data.cidr;
         cidrInput.value = data.cidr;
         cidrInput.disabled = true;
+
+        const platformRadio = document.querySelector(`input[name="platform"][value="${data.platform}"]`);
+        if (platformRadio) platformRadio.checked = true;
+
         nameInput.value = data.name;
         labelInput.value = data.label;
       } else {
@@ -168,6 +194,10 @@
         currentEditingCidr = null;
         cidrInput.value = '';
         cidrInput.disabled = false;
+
+        const wcRadio = document.querySelector('input[name="platform"][value="WC"]');
+        if (wcRadio) wcRadio.checked = true;
+
         nameInput.value = '';
         labelInput.value = '';
       }
@@ -182,10 +212,11 @@
     async function saveBras() {
       const token = localStorage.getItem('ipdr_token');
       const cidr = document.getElementById('modal-cidr').value;
+      const platform = document.querySelector('input[name="platform"]:checked')?.value;
       const name = document.getElementById('modal-name').value;
       const label = document.getElementById('modal-label').value;
 
-      if (!cidr || !name || !label) {
+      if (!cidr || !platform || !name || !label) {
         showToast('Please fill all fields', 'error');
         return;
       }
@@ -204,7 +235,7 @@
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ cidr, deviceName: name, deviceLabel: label })
+          body: JSON.stringify({ cidr, platform, deviceName: name, deviceLabel: label })
         });
 
         if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -240,26 +271,12 @@
     }
 
     function processData(raw) {
-      return raw.map((item, index) => {
-        const comment = item.comment || '';
-        const firstSpaceIndex = comment.indexOf(' ');
-        let name = '', label = '';
-
-        if (firstSpaceIndex === -1) {
-          name = comment;
-          label = '—';
-        } else {
-          name = comment.substring(0, firstSpaceIndex);
-          label = comment.substring(firstSpaceIndex + 1);
-        }
-
-        return {
-          sr: index + 1,
-          cidr: item.cidr,
-          name: name || '—',
-          label: label || '—'
-        };
-      });
+      return raw.map((item) => ({
+        platform: item.platform || '—',
+        cidr: item.cidr,
+        name: item.deviceName || '—',
+        label: item.deviceLabel || '—'
+      }));
     }
 
     function renderTable() {
@@ -281,9 +298,10 @@
       info.classList.remove('hidden');
       countEl.textContent = filteredData.length;
 
-      body.innerHTML = filteredData.map(row => `
+      body.innerHTML = filteredData.map((row, index) => `
         <tr>
-          <td class="text-center">${row.sr}</td>
+          <td class="text-center">${index + 1}</td>
+          <td class="text-left"><span class="platform-tag ${row.platform === 'WC' ? 'platform-wc' : row.platform === 'RS' ? 'platform-rs' : 'platform-default'}">${row.platform}</span></td>
           <td class="text-left cell-ip"><code class="meta-chip">${row.cidr}</code></td>
           <td class="text-left"><strong style="color:var(--text-primary)">${row.name}</strong></td>
           <td class="text-left text-muted" style="font-size:0.78rem">${row.label}</td>
@@ -316,6 +334,21 @@
 
     function applySort() {
       filteredData.sort((a, b) => {
+        // Multi-level default sort: Platform -> Name -> Label -> CIDR
+        if (sortCol === 'platform' && sortDir === 'asc') {
+          const pCompare = String(a.platform).localeCompare(String(b.platform));
+          if (pCompare !== 0) return pCompare;
+
+          const nCompare = String(a.name).localeCompare(String(b.name));
+          if (nCompare !== 0) return nCompare;
+
+          const lCompare = String(a.label).localeCompare(String(b.label));
+          if (lCompare !== 0) return lCompare;
+
+          return String(a.cidr).localeCompare(String(b.cidr));
+        }
+
+        // Single column sort for user interactions
         const valA = a[sortCol];
         const valB = b[sortCol];
         if (typeof valA === 'number') {
@@ -381,10 +414,10 @@
       document.getElementById('quick-search').addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
         filteredData = allData.filter(row =>
+          row.platform.toLowerCase().includes(term) ||
           row.cidr.toLowerCase().includes(term) ||
           row.name.toLowerCase().includes(term) ||
-          row.label.toLowerCase().includes(term) ||
-          row.sr.toString().includes(term)
+          row.label.toLowerCase().includes(term)
         );
         applySort();
       });

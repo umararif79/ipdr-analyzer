@@ -1708,7 +1708,6 @@
         async function callApi(endpoint, method = 'GET', body = null) {
             const start = performance.now();
             try {
-                const apiBase = window.location.port === '3001' ? '' : `http://${window.location.hostname}:3001`;
                 const token = document.getElementById('api-token').value;
                 if (!token) {
                     throw new Error('Missing Bearer Token. Please paste your JWT in the sidebar.');
@@ -1722,7 +1721,7 @@
                 if (body) {
                     options.body = JSON.stringify(body);
                 }
-                const res = await fetch(`${apiBase}${endpoint}`, options);
+                const res = await fetch(endpoint, options);
 
                 let data;
                 const contentType = res.headers.get('content-type');

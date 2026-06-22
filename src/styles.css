@@ -1367,3 +1367,15 @@ td.cell-timestamp {
   background: rgba(59, 130, 246, 0.05);
   font-weight: 500;
 }
+/* ── BRAS Platform Tags ──────────────────────────────────────────────── */
+.platform-tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  color: #fff;
+  display: inline-block;
+}
+.platform-wc { background: #3b82f6; }
+.platform-rs { background: #f59e0b; }
+.platform-default { background: var(--bg-tertiary); color: var(--text-secondary); }

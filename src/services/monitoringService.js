@@ -2,7 +2,7 @@ import db from '../../localdb.js';
 import logger from '../../logger.js';
 import { sendNotification } from './notificationService.js';
 import { getClickHouseClient, getFullyQualifiedView } from './connectionService.js';
-import { resolveColumn } from './queryService.js';
+import { resolveColumn, escapeString } from './queryService.js';
 
 export function generateAlertFingerprint(warrantId, matchedValues) {
   const data = JSON.stringify({ warrantId, matchedValues });
@@ -42,7 +42,6 @@ export async function runWarrantMonitor(cachedColumns) {
 
         if (conditions.length === 0) continue;
 
-        const queryParams = [];
         const whereClauses = [];
 
         for (let i = 0; i < conditions.length; i++) {
@@ -63,12 +62,11 @@ export async function runWarrantMonitor(cachedColumns) {
           if (colMatch && (colMatch.type.includes('UInt') || colMatch.type.includes('Int'))) {
             const numVal = parseInt(val, 10);
             if (!isNaN(numVal)) {
-              whereClauses.push(`${resolvedCol} ${effectiveOp} ?`);
-              queryParams.push(numVal);
+              whereClauses.push(`${resolvedCol} ${effectiveOp} ${numVal}`);
             }
           } else {
-            whereClauses.push(`toString(${resolvedCol}) ${effectiveOp} ?`);
-            queryParams.push(String(val));
+            const escapedVal = `'${escapeString(String(val))}'`;
+            whereClauses.push(`toString(${resolvedCol}) ${effectiveOp} ${escapedVal}`);
           }
         }
 
@@ -77,14 +75,14 @@ export async function runWarrantMonitor(cachedColumns) {
 
         try {
           const query = `SELECT count() as cnt FROM ${viewName} ${where} AND log_datetime >= now() - interval ${threshold_window} minute`;
-          const result = await client.query({ query, params: queryParams, format: 'JSON' });
+          const result = await client.query({ query, format: 'JSON' });
           const data = await result.json();
           const count = data.data[0]?.cnt || 0;
 
           if (count >= threshold_count) {
             // Alert Fingerprinting: capture matched sample to identify unique hits
             const sampleQuery = `SELECT * FROM ${viewName} ${where} AND log_datetime >= now() - interval ${threshold_window} minute LIMIT 1`;
-            const sampleRes = await client.query({ query: sampleQuery, params: queryParams, format: 'JSONEachRow' });
+            const sampleRes = await client.query({ query: sampleQuery, format: 'JSONEachRow' });
             const sampleRows = await sampleRes.json();
             const sampleRow = sampleRows && sampleRows.length > 0 ? sampleRows[0] : null;
             const sampleStr = sampleRow ? JSON.stringify(sampleRow) : 'No sample available';
