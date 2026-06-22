@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BRAS Management — IPDR Log Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- ── Top Bar ──────────────────────────────────────────────── -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="logo" style="cursor:pointer" onclick="window.location.href='/index.html'">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+          <path d="M8 16h4l3-8 5 16 3-8h4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32">
+              <stop stop-color="#3b82f6"/>
+              <stop offset="1" stop-color="#8b5cf6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div>
+          <h1 id="org-name">IPDR Log Analyzer</h1>
+          <span class="header-subtitle">BRAS Management</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="btn-back" class="btn btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12H4M4 12L7 9M4 12L7 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to Records
+      </button>
+      <button id="btn-logout" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 8a2 2 0 10-2 2 2 2 0 002-2zM1 5.828a1 1 0 01.707-.707l11.172 5.172a1 1 0 010 1.414l-11.172 5.172a1 1 0 01-1.414 0L1 10.586z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main Content ─────────────────────────────────────────── -->
+  <main id="app-main">
+    <section class="glass-panel">
+      <div class="section-header" style="display:flex; justify-content: space-between; align-items: center;">
+        <h2 style="display:flex; align-items:center; gap:8px">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 13h10M3 7h10M7 3v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          BRAS IPSet List
+        </h2>
+        <div style="display:flex; gap:12px; align-items:center">
+          <button id="btn-add-bras" class="btn btn-primary" style="background:var(--accent-gradient); box-shadow:var(--accent-glow)">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Add BRAS
+          </button>
+          <div class="search-wrap" style="position:relative; display:flex; align-items:center">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="position:absolute; left:10px; color:var(--text-muted)"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <input type="text" id="quick-search" placeholder="Quick search..." style="padding-left:32px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:6px 12px; font-size:0.85rem; width:250px">
+          </div>
+          <button id="btn-refresh" class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1v4h4M13 13V9H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.7 5A5.5 5.5 0 002.8 3.2L1 5M2.3 9a5.5 5.5 0 008.9 1.8L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div id="platform-legend" style="display:flex; gap:20px; margin-bottom:20px; padding:12px; background:var(--bg-secondary); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-size:0.85rem">
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="platform-tag" style="background:#3b82f6; color:#fff; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.7rem">WC</span>
+          <span style="color:var(--text-muted)">Wavecomm Hardware</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="platform-tag" style="background:#f59e0b; color:#fff; padding:2px 8px; border-radius:4px; font-weight:600; font-size:0.7rem">RS</span>
+          <span style="color:var(--text-muted)">Reseller Panel</span>
+        </div>
+      </div>
+
+      <div id="table-container" class="table-container" style="margin-top: 20px;">
+        <div id="loading-state" class="table-loading">
+          <div class="spinner"></div>
+          <span>Fetching BRAS data...</span>
+        </div>
+        <table id="data-table" class="hidden">
+          <thead>
+            <tr>
+              <th class="text-center sortable" data-col="sr">Sr No. <span class="sort-indicator">↕</span></th>
+              <th class="text-left sortable" data-col="platform">Platform <span class="sort-indicator">↕</span></th>
+              <th class="text-left sortable" data-col="cidr">CIDR <span class="sort-indicator">↕</span></th>
+              <th class="text-left sortable" data-col="name">Device Name <span class="sort-indicator">↕</span></th>
+              <th class="text-left sortable" data-col="label">Device Label <span class="sort-indicator">↕</span></th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="bras-body"></tbody>
+        </table>
+        <div id="empty-state" class="table-empty hidden">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="4" y="8" width="40" height="32" rx="4" stroke="currentColor" stroke-width="2"/><path d="M4 16h40M16 16v24M32 16v24" stroke="currentColor" stroke-width="2"/><path d="M20 28h8M20 34h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/></svg>
+          <p>No matching BRAS entries found.</p>
+        </div>
+        <div id="table-info" class="table-info hidden" style="padding: 10px 14px; border-top: 1px solid var(--border-subtle);">
+          Showing <strong id="record-count">0</strong> records
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast-container"></div>
+
+  <!-- Modal for Add/Edit BRAS -->
+  <div id="bras-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-size: 1rem; font-weight: 600;">Add New BRAS</h3>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M1 12L13 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="bras-form" style="display:flex; flex-direction:column; gap:16px">
+          <div class="filter-group">
+            <label>CIDR Address</label>
+            <input type="text" id="modal-cidr" placeholder="e.g. 1.1.1.1/32" required>
+          </div>
+          <div class="filter-group">
+            <label>Platform</label>
+            <div style="display:flex; gap:16px; align-items:center; padding:4px 0">
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:400">
+                <input type="radio" name="platform" value="WC" checked style="accent-color:var(--accent-primary)"> WC
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:400">
+                <input type="radio" name="platform" value="RS" style="accent-color:var(--accent-primary)"> RS
+              </label>
+            </div>
+          </div>
+          <div class="filter-group">
+            <label>Device Name</label>
+            <input type="text" id="modal-name" placeholder="e.g. BRAS-01" required>
+          </div>
+          <div class="filter-group">
+            <label>Device Label</label>
+            <input type="text" id="modal-label" placeholder="e.g. North Zone" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+        <button id="btn-save-bras" class="btn btn-primary btn-sm">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = '/api/infra/bras-list';
+    let allData = [];
+    let filteredData = [];
+    let sortCol = 'platform';
+    let sortDir = 'asc';
+
+    async function showToast(msg, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = msg;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    let currentModalMode = 'add';
+    let currentEditingCidr = null;
+
+    function openModal(mode, data = null) {
+      currentModalMode = mode;
+      const modal = document.getElementById('bras-modal');
+      const title = document.getElementById('modal-title');
+      const cidrInput = document.getElementById('modal-cidr');
+      const nameInput = document.getElementById('modal-name');
+      const labelInput = document.getElementById('modal-label');
+
+      if (mode === 'edit') {
+        title.textContent = 'Edit BRAS Entry';
+        currentEditingCidr = data.cidr;
+        cidrInput.value = data.cidr;
+        cidrInput.disabled = true;
+
+        const platformRadio = document.querySelector(`input[name="platform"][value="${data.platform}"]`);
+        if (platformRadio) platformRadio.checked = true;
+
+        nameInput.value = data.name;
+        labelInput.value = data.label;
+      } else {
+        title.textContent = 'Add New BRAS';
+        currentEditingCidr = null;
+        cidrInput.value = '';
+        cidrInput.disabled = false;
+
+        const wcRadio = document.querySelector('input[name="platform"][value="WC"]');
+        if (wcRadio) wcRadio.checked = true;
+
+        nameInput.value = '';
+        labelInput.value = '';
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('bras-modal').classList.add('hidden');
+    }
+
+    async function saveBras() {
+      const token = localStorage.getItem('ipdr_token');
+      const cidr = document.getElementById('modal-cidr').value;
+      const platform = document.querySelector('input[name="platform"]:checked')?.value;
+      const name = document.getElementById('modal-name').value;
+      const label = document.getElementById('modal-label').value;
+
+      if (!cidr || !platform || !name || !label) {
+        showToast('Please fill all fields', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btn-save-bras');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const endpoint = currentModalMode === 'add' ? '/api/infra/bras' : `/api/infra/bras/${currentEditingCidr}`;
+        const method = currentModalMode === 'add' ? 'POST' : 'PUT';
+
+        const response = await fetch(endpoint, {
+          method,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ cidr, platform, deviceName: name, deviceLabel: label })
+        });
+
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        showToast(`BRAS ${currentModalMode === 'add' ? 'added' : 'updated'} successfully`, 'success');
+        closeModal();
+        await fetchBrasList();
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+      }
+    }
+
+    async function deleteBras(cidr) {
+      if (!confirm(`Are you sure you want to delete BRAS ${cidr}?`)) return;
+
+      const token = localStorage.getItem('ipdr_token');
+      try {
+        const response = await fetch(`/api/infra/bras/${cidr}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        showToast(`BRAS ${cidr} deleted successfully`, 'success');
+        await fetchBrasList();
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      }
+    }
+
+    function processData(raw) {
+      return raw.map((item) => ({
+        platform: item.platform || '—',
+        cidr: item.cidr,
+        name: item.deviceName || '—',
+        label: item.deviceLabel || '—'
+      }));
+    }
+
+    function renderTable() {
+      const body = document.getElementById('bras-body');
+      const table = document.getElementById('data-table');
+      const empty = document.getElementById('empty-state');
+      const info = document.getElementById('table-info');
+      const countEl = document.getElementById('record-count');
+
+      if (filteredData.length === 0) {
+        table.classList.add('hidden');
+        empty.classList.remove('hidden');
+        info.classList.add('hidden');
+        return;
+      }
+
+      empty.classList.add('hidden');
+      table.classList.remove('hidden');
+      info.classList.remove('hidden');
+      countEl.textContent = filteredData.length;
+
+      body.innerHTML = filteredData.map((row, index) => `
+        <tr>
+          <td class="text-center">${index + 1}</td>
+          <td class="text-left"><span class="platform-tag ${row.platform === 'WC' ? 'platform-wc' : row.platform === 'RS' ? 'platform-rs' : 'platform-default'}">${row.platform}</span></td>
+          <td class="text-left cell-ip"><code class="meta-chip">${row.cidr}</code></td>
+          <td class="text-left"><strong style="color:var(--text-primary)">${row.name}</strong></td>
+          <td class="text-left text-muted" style="font-size:0.78rem">${row.label}</td>
+          <td class="text-right actions-cell">
+            <button class="btn btn-icon btn-sm" onclick="openModal('edit', ${JSON.stringify(row).replace(/"/g, '&quot;')})">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2L10 6.5L4.5 11V2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Edit
+            </button>
+            <button class="btn btn-icon btn-sm text-danger" onclick="deleteBras('${row.cidr}')">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4h6v6H3V4zm3 4v2M6 2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Delete
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function updateSortIcons() {
+      document.querySelectorAll('.sortable').forEach(th => {
+        const icon = th.querySelector('.sort-indicator');
+        if (th.dataset.col === sortCol) {
+          icon.textContent = sortDir === 'asc' ? '▴' : '▾';
+          icon.style.color = 'var(--accent-primary)';
+        } else {
+          icon.textContent = '↕';
+          icon.style.color = 'var(--text-muted)';
+        }
+      });
+    }
+
+    function applySort() {
+      filteredData.sort((a, b) => {
+        // Multi-level default sort: Platform -> Name -> Label -> CIDR
+        if (sortCol === 'platform' && sortDir === 'asc') {
+          const pCompare = String(a.platform).localeCompare(String(b.platform));
+          if (pCompare !== 0) return pCompare;
+
+          const nCompare = String(a.name).localeCompare(String(b.name));
+          if (nCompare !== 0) return nCompare;
+
+          const lCompare = String(a.label).localeCompare(String(b.label));
+          if (lCompare !== 0) return lCompare;
+
+          return String(a.cidr).localeCompare(String(b.cidr));
+        }
+
+        // Single column sort for user interactions
+        const valA = a[sortCol];
+        const valB = b[sortCol];
+        if (typeof valA === 'number') {
+          return sortDir === 'asc' ? valA - valB : valB - valA;
+        }
+        return sortDir === 'asc'
+          ? String(valA).localeCompare(String(valB))
+          : String(valB).localeCompare(String(valA));
+      });
+      updateSortIcons();
+      renderTable();
+    }
+
+    async function fetchBrasList() {
+      const token = localStorage.getItem('ipdr_token');
+      if (!token) {
+        window.location.href = '/login.html';
+        return;
+      }
+
+      const loading = document.getElementById('loading-state');
+      const table = document.getElementById('data-table');
+      const empty = document.getElementById('empty-state');
+
+      loading.classList.remove('hidden');
+      table.classList.add('hidden');
+      empty.classList.add('hidden');
+
+      try {
+        const response = await fetch(API_URL, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        const json = await response.json();
+        allData = processData(json);
+        filteredData = [...allData];
+
+        applySort();
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const settings = JSON.parse(localStorage.getItem('ipdr_settings') || '{}');
+      if (settings.globalParams?.orgName) {
+        document.getElementById('org-name').textContent = settings.globalParams.orgName;
+      }
+
+      document.getElementById('btn-back').onclick = () => window.location.href = '/index.html';
+      document.getElementById('btn-refresh').onclick = fetchBrasList;
+      document.getElementById('btn-add-bras').onclick = () => openModal('add');
+      document.getElementById('btn-save-bras').onclick = saveBras;
+      document.getElementById('btn-logout').onclick = () => {
+        localStorage.clear();
+        window.location.href = '/login.html';
+      };
+
+      document.getElementById('quick-search').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        filteredData = allData.filter(row =>
+          row.platform.toLowerCase().includes(term) ||
+          row.cidr.toLowerCase().includes(term) ||
+          row.name.toLowerCase().includes(term) ||
+          row.label.toLowerCase().includes(term)
+        );
+        applySort();
+      });
+
+      document.querySelectorAll('.sortable').forEach(th => {
+        th.onclick = () => {
+          const col = th.dataset.col;
+          if (sortCol === col) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortCol = col;
+            sortDir = 'asc';
+          }
+          applySort();
+        };
+      });
+
+      fetchBrasList();
+    });
+  </script>
+</body>
+</html>

@@ -7,104 +7,74 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import db from './localdb.js';
-import { generateToken, authMiddleware, adminMiddleware } from './auth.js';
+import configService from './src/services/configService.js';
+import { generateToken, authMiddleware, adminMiddleware, roleMiddleware } from './auth.js';
+import logger from './logger.js';
 import { encrypt, decrypt } from './crypto.js';
+import { sendNotification } from './src/services/notificationService.js';
+import rateLimit from 'express-rate-limit';
 
-const LOG_FILE = path.join(process.cwd(), 'server_debug.log');
+import { getClickHouseClient, resolveActiveConnections, getFullyQualifiedView, cachedColumns } from './src/services/connectionService.js';
+import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodDateRange, fetchStatsForRange } from './src/services/queryService.js';
+import { logAuditAction } from './src/services/auditService.js';
+import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitoringService.js';
+import { validate, schemas } from './src/services/validationService.js';
+import proxmoxService from './src/services/proxmoxService.js';
 
-function writeLog(message) {
-  const timestamp = new Date().toISOString();
-  const logEntry = `[${timestamp}] ${message}\n`;
-  fs.appendFileSync(LOG_FILE, logEntry);
-  console.log(message);
+// Initialize secrets from DB before booting server
+await configService.initialize();
+
+if (!configService.get('JWT_SECRET')) {
+  console.error('FATAL ERROR: JWT_SECRET is not defined in localdb system_settings.');
+  process.exit(1);
 }
 
 const app = express();
+console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.2`);
 app.use(cors());
 app.use(compression());
 app.use(express.json());
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', apiLimiter);
+
 app.use((req, res, next) => {
-  writeLog(`[HTTP] ${req.method} ${req.url}`);
+  logger.info(`[HTTP] ${req.method} ${req.url}`);
   next();
 });
 
-const clientCache = new Map();
-
-async function getClickHouseClient(connectionId) {
-  if (!connectionId) throw new Error('No connection ID provided');
-  if (clientCache.has(connectionId)) return clientCache.get(connectionId);
-
-  const conn = db.prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
-  if (!conn) throw new Error('Connection configuration not found');
-
-  const client = createClient({
-    url: conn.host,
-    username: conn.username,
-    password: conn.password,
-    database: conn.database,
-    request_timeout: 120000,
-  });
-
-  clientCache.set(connectionId, client);
-  return client;
-}
-
-async function resolveActiveConnections(req) {
-  const userId = req.user.id;
-  const role = req.user.role;
-
-  // Accept connectionIds from body or query
-  const requested = req.body?.connectionIds || req.query?.connectionIds;
-
-  const assigned = db.prepare('SELECT connection_id FROM user_connections WHERE user_id = ?').all(userId);
-  const assignedIds = assigned.map(row => row.connection_id);
-
-  writeLog(`[Auth] Resolving connections for user ${userId} (role: ${role}), requested: ${JSON.stringify(requested)}`);
-
-  // Handle "0" (all available)
-  if (requested === '0' || requested === [0]) {
-    if (role === 'admin') {
-      const all = db.prepare('SELECT id FROM connections').all().map(c => c.id);
-      writeLog(`[Auth] Admin requested "0", returning all: ${JSON.stringify(all)}`);
-      return all;
-    }
-    writeLog(`[Auth] User requested "0", returning assigned: ${JSON.stringify(assignedIds)}`);
-    return assignedIds;
-  }
-
-  // Handle comma-separated string or array
-  let ids = [];
-  if (requested) {
-    ids = Array.isArray(requested)
-      ? requested
-      : (typeof requested === 'string' ? requested.split(',') : [requested]);
-    ids = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-  }
-
-  if (role === 'admin') {
-    if (ids.length > 0) {
-      writeLog(`[Auth] Admin requested specific IDs: ${JSON.stringify(ids)}`);
-      return ids;
-    }
-    const all = db.prepare('SELECT id FROM connections').all().map(c => c.id);
-    writeLog(`[Auth] Admin requested none, returning all: ${JSON.stringify(all)}`);
-    return all;
-  }
-
-  if (ids.length > 0) {
-    const validIds = ids.filter(id => assignedIds.includes(id));
-    writeLog(`[Auth] User requested IDs ${JSON.stringify(ids)}, valid: ${JSON.stringify(validIds)}`);
-    if (validIds.length === 0) throw new Error('No valid assigned connections selected');
-    return validIds;
-  }
-
-  if (assignedIds.length === 1) return assignedIds;
-  if (assignedIds.length > 1) throw new Error('Multiple connections available; please specify connectionIds (e.g. "0" for all, or "1,2" for specific ones)');
-  throw new Error('No ClickHouse connections assigned to this user');
-}
-
 const VIEW = 'view_parsed_logs';
+
+app.get('/api/debug/secret', (req, res) => {
+  res.json({ secret: process.env.JWT_SECRET || 'ipdr-secret-key-2026' });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running' });
+});
+
+app.get('/api/health', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const healthResults = await Promise.all(activeIds.map(async (id) => {
+      try {
+        const client = await getClickHouseClient(id);
+        const res = await client.query({ query: 'SELECT 1', format: 'JSON' });
+        await res.json();
+        return { id, status: 'ok' };
+      } catch (err) { return { id, status: 'error', message: err.message }; }
+    }));
+    const allOk = healthResults.every(r => r.status === 'ok');
+    res.json({ status: allOk ? 'ok' : 'partial_error', connections: healthResults, timestamp: new Date().toISOString() });
+  } catch (err) { res.status(400).json({ status: 'error', message: err.message }); }
+});
 
 app.get('/', (req, res) => { res.sendFile(path.join(process.cwd(), 'index.html')); });
 app.get('/login', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
@@ -125,36 +95,59 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => { res.json({ message: 'Logged out successfully' }); });
 
-app.delete('/api/admin/connections/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.delete('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
+    const conn = db.prepare('SELECT * FROM connections WHERE id = ?').get(id);
+    if (!conn) return res.status(404).json({ error: 'Connection not found' });
+
     const result = db.prepare('DELETE FROM connections WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Connection not found' });
+    await logAuditAction(req.user.id, 'DELETE', 'connection', id, conn, null, req);
     res.json({ message: 'Connection deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.delete('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
     const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'User not found' });
+    await logAuditAction(req.user.id, 'DELETE', 'user', id, user, null, req);
     res.json({ message: 'User deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/admin/connections', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/audit', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+  try {
+    const logs = db.prepare(`
+      SELECT a.*, a.timestamp as created_at, u.username
+      FROM audit_logs a
+      LEFT JOIN users u ON a.user_id = u.id
+      ORDER BY a.timestamp DESC
+    `).all();
+    res.json(logs);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   const conns = db.prepare('SELECT id, label, host, username, database FROM connections').all();
   res.json(conns);
 });
 
-app.post('/api/admin/connections', authMiddleware, adminMiddleware, (req, res) => {
-  const { label, host, username, password, database } = req.body;
-  const result = db.prepare(`INSERT INTO connections (label, host, username, password, database) VALUES (?, ?, ?, ?, ?)`).run(label, host, username, password, database);
-  res.json({ id: result.lastInsertRowid, message: 'Connection created' });
+app.post('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.create), async (req, res) => {
+  try {
+    const { label, host, username, password, database } = req.body;
+    const encryptedPassword = encrypt(password);
+    const result = db.prepare(`INSERT INTO connections (label, host, username, password, database) VALUES (?, ?, ?, ?, ?)`).run(label, host, username, encryptedPassword, database);
+    const id = result.lastInsertRowid;
+    await logAuditAction(req.user.id, 'CREATE', 'connection', id, null, { label, host, username, database }, req);
+    res.json({ id, message: 'Connection created' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   const users = db.prepare('SELECT id, username, role, created_at FROM users').all();
   const usersWithConns = users.map(user => {
     const conns = db.prepare('SELECT connection_id FROM user_connections WHERE user_id = ?').all(user.id);
@@ -169,7 +162,7 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
   res.json(usersWithConns);
 });
 
-app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.create), async (req, res) => {
   try {
     const { username, password, connectionIds, role } = req.body;
     const hash = await bcrypt.hash(password, 10);
@@ -182,29 +175,38 @@ app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) =
       const tx = db.transaction((idList) => { for (const id of idList) insertConn.run(userId, id); });
       tx(normalizedIds);
     }
+    await logAuditAction(req.user.id, 'CREATE', 'user', userId, null, { username, role, connectionIds }, req);
     res.json({ id: userId, message: 'User created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/admin/connections/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.put('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.update), async (req, res) => {
   try {
     const { id } = req.params;
     const { label, host, username, password, database } = req.body;
+    const oldConn = db.prepare('SELECT * FROM connections WHERE id = ?').get(id);
+    if (!oldConn) return res.status(404).json({ error: 'Connection not found' });
+
     if (password && password.trim() !== '') {
-      const result = db.prepare(`UPDATE connections SET label = ?, host = ?, username = ?, password = ?, \`database\` = ? WHERE id = ?`).run(label, host, username, password, database, id);
+      const encryptedPassword = encrypt(password);
+      const result = db.prepare(`UPDATE connections SET label = ?, host = ?, username = ?, password = ?, \`database\` = ? WHERE id = ?`).run(label, host, username, encryptedPassword, database, id);
       if (result.changes === 0) return res.status(404).json({ error: 'Connection not found' });
     } else {
       const result = db.prepare(`UPDATE connections SET label = ?, host = ?, username = ?, \`database\` = ? WHERE id = ?`).run(label, host, username, database, id);
       if (result.changes === 0) return res.status(404).json({ error: 'Connection not found' });
     }
+    await logAuditAction(req.user.id, 'UPDATE', 'connection', id, oldConn, { label, host, username, database }, req);
     res.json({ message: 'Connection updated' });
-  } catch (err) { writeLog(`[ERROR] Connection Update failed: ${err.message}`); res.status(500).json({ error: err.message }); }
+  } catch (err) { logger.error(`[ERROR] Connection Update failed: ${err.message}`); res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.put('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.update), async (req, res) => {
   try {
     const { id } = req.params;
     const { username, password, connectionIds, role } = req.body;
+    const oldUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!oldUser) return res.status(404).json({ error: 'User not found' });
+
     let updateQuery = 'UPDATE users SET username = ?, role = ? WHERE id = ?';
     let params = [username, role, id];
     if (password && password.trim() !== '') {
@@ -222,203 +224,529 @@ app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res
       const tx = db.transaction((idList) => { for (const connId of idList) insertConn.run(id, connId); });
       tx(normalizedIds);
     }
+    await logAuditAction(req.user.id, 'UPDATE', 'user', id, oldUser, { username, role, connectionIds }, req);
     res.json({ message: 'User updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/admin/settings', authMiddleware, adminMiddleware, (req, res) => {
+// ── User Personalization ──────────────────────────────────────────────
+
+app.get('/api/filters/favorites', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const favorites = db.prepare('SELECT * FROM favorite_filters WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    res.json(favorites);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/filters/favorites', authMiddleware, (req, res) => {
+  try {
+    const { name, filter_values } = req.body;
+    const userId = req.user.id;
+    if (!name || !filter_values) return res.status(400).json({ error: 'Name and filter_values are required' });
+    const result = db.prepare('INSERT INTO favorite_filters (user_id, name, filter_values) VALUES (?, ?, ?)')
+      .run(userId, name, JSON.stringify(filter_values));
+    res.json({ id: result.lastInsertRowid, message: 'Favorite filter saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/filters/favorites/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const result = db.prepare('DELETE FROM favorite_filters WHERE id = ? AND user_id = ?').run(id, userId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Favorite not found' });
+    res.json({ message: 'Favorite deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/preferences', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    res.json(pref || { dashboard_layout: null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/preferences', authMiddleware, (req, res) => {
+  try {
+    const { dashboard_layout } = req.body;
+    const userId = req.user.id;
+    db.prepare('INSERT OR REPLACE INTO user_preferences (user_id, dashboard_layout, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+      .run(userId, JSON.stringify(dashboard_layout));
+    res.json({ message: 'Preferences updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Warrant & Alert System ──────────────────────────────────────────────
+
+app.get('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+  try {
+    const warrants = db.prepare('SELECT * FROM warrants ORDER BY created_at DESC').all();
+    res.json(warrants);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.create), async (req, res) => {
+  try {
+    const { name, conditions } = req.body;
+    if (!name || !conditions || !Array.isArray(conditions)) return res.status(400).json({ error: 'Name and conditions array are required' });
+    const result = db.prepare('INSERT INTO warrants (name, conditions, active) VALUES (?, ?, ?)')
+      .run(name, JSON.stringify(conditions), 1);
+    const id = result.lastInsertRowid;
+    await logAuditAction(req.user.id, 'CREATE', 'warrant', id, null, { name, conditions }, req);
+    res.json({ id, message: 'Warrant created' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.update), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, conditions, active } = req.body;
+    const oldWarrant = db.prepare('SELECT * FROM warrants WHERE id = ?').get(id);
+    if (!oldWarrant) return res.status(404).json({ error: 'Warrant not found' });
+
+    const params = [
+      name ?? null,
+      conditions ? JSON.stringify(conditions) : null,
+      active ?? 1,
+      id
+    ];
+
+    const result = db.prepare('UPDATE warrants SET name = ?, conditions = ?, active = ? WHERE id = ?')
+      .run(...params);
+    if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
+    await logAuditAction(req.user.id, 'UPDATE', 'warrant', id, oldWarrant, { name, conditions, active }, req);
+    res.json({ message: 'Warrant updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const warrant = db.prepare('SELECT * FROM warrants WHERE id = ?').get(id);
+    if (!warrant) return res.status(404).json({ error: 'Warrant not found' });
+    const result = db.prepare('DELETE FROM warrants WHERE id = ?').run(id);
+    await logAuditAction(req.user.id, 'DELETE', 'warrant', id, warrant, null, req);
+    res.json({ message: 'Warrant deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/alerts', authMiddleware, (req, res) => {
+  try {
+    const alerts = db.prepare(`
+      SELECT a.*, w.name as warrant_name
+      FROM alerts a
+      JOIN warrants w ON a.warrant_id = w.id
+      WHERE a.resolved = 0
+      ORDER BY a.detected_at DESC
+    `).all();
+    res.json(alerts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resolved } = req.body;
+    const result = db.prepare('UPDATE alerts SET resolved = ? WHERE id = ?').run(resolved, id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Alert not found' });
+    res.json({ message: 'Alert status updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/alerts/resolve-all', authMiddleware, (req, res) => {
+  try {
+    db.prepare('UPDATE alerts SET resolved = 1').run();
+    res.json({ message: 'All alerts resolved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manager']), (req, res) => {
+  try {
+    db.prepare('DELETE FROM alerts').run();
+    res.json({ message: 'Alert history cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
+
+app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const nodes = await proxmoxService.getNodes();
+    res.json(nodes);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Nodes: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster nodes' });
+  }
+});
+
+app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const vms = await proxmoxService.getVMs();
+    res.json(vms);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] VMs: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch cluster VMs' });
+  }
+});
+
+app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const bras = await proxmoxService.getStaticBrasIpSet();
+
+    const transformed = bras.map(item => {
+      logger.info(`[BRAS-List] Processing item: ${JSON.stringify(item)}`);
+      const parts = (item.comment || '').split('|').map(p => p.trim());
+      const ip = parts.length > 0 ? parts[parts.length - 1] : '—';
+      const platform = parts.length > 0 ? parts[0] : '—';
+      let deviceName = '—';
+      let deviceLabel = '—';
+
+      if (parts.length >= 4) {
+        deviceName = parts[1];
+        deviceLabel = parts[2];
+      } else if (parts.length === 3) {
+        deviceName = parts[1];
+        // deviceLabel stays '—'
+      } else if (parts.length === 2) {
+        // Platform and IP only
+      }
+
+      return {
+        cidr: item.cidr,
+        platform: platform || '—',
+        deviceName: deviceName || '—',
+        deviceLabel: deviceLabel || '—',
+        ip: ip || '—',
+        digest: item.digest
+      };
+    });
+
+    res.json(transformed);
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Static BRAS IPSet: ${err.message}`);
+    res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
+  }
+});
+
+app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr, platform, deviceName, deviceLabel } = req.body;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    const result = await proxmoxService.addBras(cidr, platform || '—', deviceName || '—', deviceLabel || '—');
+
+    await logAuditAction(req.user.id, 'CREATE', 'bras', cidr, null, { cidr, platform, deviceName, deviceLabel }, req);
+
+    res.json({ data: result.data, message: 'BRAS entry added successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Add BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to add BRAS entry' });
+  }
+});
+
+app.put('/api/infra/bras/:cidr', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr: bodyCidr, platform, deviceName, deviceLabel } = req.body;
+    const cidr = req.params.cidr || bodyCidr;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    // Fetch current state for audit log
+    const currentList = await proxmoxService.getStaticBrasIpSet();
+    const oldEntry = currentList.find(item => item.cidr === cidr);
+
+    const result = await proxmoxService.updateBras(cidr, platform || '—', deviceName || '—', deviceLabel || '—');
+
+    await logAuditAction(req.user.id, 'UPDATE', 'bras', cidr, oldEntry, { platform, deviceName, deviceLabel }, req);
+
+    res.json({ data: result.data, message: 'BRAS entry updated successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Update BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to update BRAS entry' });
+  }
+});
+
+app.delete('/api/infra/bras/:cidr', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr } = req.params;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    // Fetch current state for audit log
+    const currentList = await proxmoxService.getStaticBrasIpSet();
+    const oldEntry = currentList.find(item => item.cidr === cidr);
+
+    const result = await proxmoxService.deleteBras(cidr);
+
+    await logAuditAction(req.user.id, 'DELETE', 'bras', cidr, oldEntry, null, req);
+
+    res.json({ data: result.data, message: 'BRAS entry deleted successfully' });
+  } catch (err) {
+    logger.error(`[Infra Bridge Error] Delete BRAS: ${err.message}`);
+    res.status(500).json({ error: 'Failed to delete BRAS entry' });
+  }
+});
+
+app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings').all();
     res.json(settings);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/admin/settings', authMiddleware, adminMiddleware, (req, res) => {
+app.post('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.settings.update), async (req, res) => {
   try {
     const { key, value } = req.body;
     if (!key) return res.status(400).json({ error: 'Key is required' });
+    const oldSetting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
     db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
+    await logAuditAction(req.user.id, 'UPDATE', 'setting', key, oldSetting, { key, value }, req);
     res.json({ message: 'Setting updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Column Resolution ──────────────────────────────────────────────
-const COLUMN_MAP = {
-  timestamp: 'log_datetime',
-  src_ip: 'src_ip',
-  dst_ip: 'dest_ip',
-  src_port: 'src_port',
-  dst_port: 'dest_port',
-  protocol: 'proto',
-  username: 'pppoe_username',
-  mac: 'src_mac',
-};
-
-async function getSystemSetting(key, defaultValue) {
-  const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
-  return row ? row.value : defaultValue;
-}
-
-function resolveColumn(logicalName, connectionId) {
-  if (!cachedColumns.has(connectionId)) return null;
-  const cols = cachedColumns.get(connectionId);
-
-  const mapped = COLUMN_MAP[logicalName];
-  if (mapped && cols.some(c => c.name === mapped)) return mapped;
-  if (cols.some(c => c.name === logicalName)) return logicalName;
-  return null;
-}
-
-function getFullyQualifiedView(connectionId) {
-  const conn = db.prepare('SELECT database FROM connections WHERE id = ?').get(connectionId);
-  return (conn && conn.database) ? `${conn.database}.${VIEW}` : VIEW;
-}
-
-function escapeString(val) {
-  if (typeof val !== 'string') return val;
-  return val.replace(/'/g, "''");
-}
-
-function getPeriodDateRange(period) {
-  const now = new Date();
-  const formatDate = (d) => d.toISOString().slice(0, 10);
-
-  let start = new Date(now);
-  let end = new Date(now);
-
-  switch (period) {
-    case 'today':
-      break;
-    case 'yesterday':
-      start.setDate(now.getDate() - 1);
-      end.setDate(now.getDate() - 1);
-      break;
-    case 'last-week':
-      start.setDate(now.getDate() - 7);
-      break;
-    case 'last-month':
-      // Use a robust way to subtract a month to avoid the 31st-to-30th bug
-      start.setMonth(now.getMonth() - 1);
-      if (start.getDate() !== now.getDate()) {
-        start.setDate(0);
-      }
-      break;
-    case 'last-quarter':
-      start.setMonth(now.getMonth() - 3);
-      if (start.getDate() !== now.getDate()) {
-        start.setDate(0);
-      }
-      break;
-    default:
-      return null;
-  }
-  return { datefrom: formatDate(start), dateto: formatDate(end) };
-}
-
-function buildWhereClause(filters, connectionId) {
-  const conditions = [];
-  const cols = cachedColumns.get(connectionId) || [];
-
-  // Use log_date for date-only filters, log_datetime for precise time
-  const dateCol = 'log_date';
-
-  const normalizedFilters = {};
-  for (const key in filters) { normalizedFilters[key.toLowerCase()] = filters[key]; }
-  writeLog(`[Filter Debug] Normalized Filters: ${JSON.stringify(normalizedFilters)}`);
-
-  const dateFrom = normalizedFilters.datefrom;
-  const dateTo = normalizedFilters.dateto;
-
-  if (dateFrom && dateCol) {
-    const cleanDateFrom = typeof dateFrom === 'string' ? dateFrom.slice(0, 10) : dateFrom;
-    conditions.push(`${dateCol} >= toDate('${cleanDateFrom}')`);
-  }
-  if (dateTo && dateCol) {
-    const cleanDateTo = typeof dateTo === 'string' ? dateTo.slice(0, 10) : dateTo;
-    conditions.push(`${dateCol} <= toDate('${cleanDateTo}')`);
-  } else if (dateFrom && !dateTo && dateCol) {
-    const now = new Date().toISOString().slice(0, 10);
-    conditions.push(`${dateCol} <= toDate('${now}')`);
-  }
-
-  // Handle Generic Custom Filter
-  const genericCol = normalizedFilters.genericcolumn;
-  const genericVal = normalizedFilters.genericvalue;
-  writeLog(`[Filter Debug] Generic Column: ${genericCol}, Generic Value: ${genericVal}`);
-  if (genericCol && genericVal) {
-    const resolvedGenericCol = resolveColumn(genericCol, connectionId);
-    writeLog(`[Filter Debug] Resolved Generic Col: ${resolvedGenericCol}`);
-    if (resolvedGenericCol) {
-      const colMatch = cols.find(c => c.name === resolvedGenericCol);
-      if (colMatch) {
-        const colType = colMatch.type;
-        writeLog(`[Filter Debug] Col Match Found: ${colMatch.name}, Type: ${colType}`);
-        if (colType.includes('UInt') || colType.includes('Int')) {
-          const val = parseInt(genericVal, 10);
-          if (!isNaN(val)) conditions.push(`${resolvedGenericCol} = ${val}`);
-        } else if (colType.includes('String')) {
-          conditions.push(`${resolvedGenericCol} = '${escapeString(genericVal)}'`);
-        } else {
-          conditions.push(`toString(${resolvedGenericCol}) = '${escapeString(genericVal)}'`);
-        }
-      } else {
-        writeLog(`[Filter Debug] Col Match NOT found for ${resolvedGenericCol} in cols list`);
-      }
-    } else {
-      writeLog(`[Filter Debug] Could not resolve column ${genericCol}`);
-    }
-  }
-
-  for (const [filterKey, filterVal] of Object.entries(normalizedFilters)) {
-    if (filterKey === 'datefrom' || filterKey === 'dateto' || filterKey === 'genericcolumn' || filterKey === 'genericvalue') continue;
-    if (!filterVal && filterVal !== 0) continue; // Skip empty filters
-
-    const colName = resolveColumn(filterKey, connectionId);
-    if (!colName) continue;
-
-    const colMatch = cols.find(c => c.name === colName);
-    if (!colMatch) continue;
-
-    const colType = colMatch.type;
-
-    if (colType.includes('UInt') || colType.includes('Int')) {
-      const val = parseInt(filterVal, 10);
-      if (!isNaN(val)) conditions.push(`${colName} = ${val}`);
-    } else if (colType.includes('String')) {
-      conditions.push(`${colName} = '${escapeString(filterVal)}'`);
-    } else {
-      conditions.push(`toString(${colName}) = '${escapeString(filterVal)}'`);
-    }
-  }
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  if (where) writeLog(`\n[SQL Query]\n  WHERE: ${where}`);
-  return { where, params: {} };
-}
-
-app.get('/api/health', authMiddleware, async (req, res) => {
+app.get('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   try {
-    const activeIds = await resolveActiveConnections(req);
-    const healthResults = await Promise.all(activeIds.map(async (id) => {
-      try {
-        const client = await getClickHouseClient(id);
-        const res = await client.query({ query: 'SELECT 1', format: 'JSON' });
-        await res.json();
-        return { id, status: 'ok' };
-      } catch (err) { return { id, status: 'error', message: err.message }; }
-    }));
-    const allOk = healthResults.every(r => r.status === 'ok');
-    res.json({ status: allOk ? 'ok' : 'partial_error', connections: healthResults, timestamp: new Date().toISOString() });
-  } catch (err) { res.status(400).json({ status: 'error', message: err.message }); }
+    const settings = db.prepare('SELECT * FROM system_settings WHERE key LIKE "notif_%"').all();
+    const config = {};
+    settings.forEach(s => { config[s.key.replace('notif_', '')] = s.value; });
+    res.json(config);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-let cachedColumns = new Map();
+app.post('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.notifications.update), async (req, res) => {
+  try {
+    const { provider, token, chatId, webhookUrl } = req.body;
+    if (!provider) return res.status(400).json({ error: 'Provider is required' });
+
+    const settings = [];
+    if (provider === 'telegram') {
+      settings.push({ key: 'notif_provider', value: 'telegram' });
+      if (token) settings.push({ key: 'notif_token', value: token });
+      if (chatId) settings.push({ key: 'notif_chatid', value: chatId });
+    } else if (provider === 'slack') {
+      settings.push({ key: 'notif_provider', value: 'slack' });
+      if (webhookUrl) settings.push({ key: 'notif_webhook', value: webhookUrl });
+    }
+
+    for (const s of settings) {
+      db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(s.key, s.value);
+    }
+    await logAuditAction(req.user.id, 'UPDATE', 'notifications', null, null, { provider, token, chatId, webhookUrl }, req);
+    res.json({ message: 'Notification settings updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/related', authMiddleware, async (req, res) => {
+  try {
+    const { src_ip, timestamp } = req.query;
+    if (!src_ip || !timestamp) return res.status(400).json({ error: 'src_ip and timestamp are required' });
+
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+
+      const query = `SELECT * FROM ${viewName} WHERE src_ip = ? AND log_datetime BETWEEN toDateTime64('${timestamp}') - INTERVAL 5 MINUTE AND toDateTime64('${timestamp}') + INTERVAL 5 MINUTE ORDER BY log_datetime ASC`;
+      const result = await client.query({ query, params: [src_ip], format: 'JSONEachRow' });
+      return await result.json();
+    }));
+
+    res.json(results.flat());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/stats/global', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    if (!activeIds || activeIds.length === 0) {
+      return res.json({ summary: {}, brasDistribution: [], topDestinations: [], topCountries: [], topApps: [], topOrgs: [], hourlyTraffic: [], previousHourlyTraffic: [], heatmap: {} });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    // Fetch all three sets of stats in parallel to avoid sequential blocking and reduce overall request time
+    const [stats, currentDayStats, prevDayStats] = await Promise.all([
+      fetchStatsForRange(activeIds, { datefrom: yesterdayStr, dateto: today }, cachedColumns),
+      fetchStatsForRange(activeIds, { datefrom: today, dateto: today }, cachedColumns),
+      fetchStatsForRange(activeIds, { datefrom: yesterdayStr, dateto: yesterdayStr }, cachedColumns)
+    ]);
+
+    // Merge results
+    const finalStats = {
+      ...stats,
+      hourlyTraffic: currentDayStats.hourlyTraffic,
+      previousHourlyTraffic: prevDayStats.hourlyTraffic,
+    };
+
+    // Traffic Heatmap (30 Days) - handled separately as it's a large query
+    const heatmapData = await Promise.all(activeIds.map(async (connId) => {
+      try {
+        const client = await getClickHouseClient(connId);
+        const viewName = getFullyQualifiedView(connId);
+        const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+        const result = await client.query({
+          query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) GROUP BY date, hour ORDER BY date, hour`,
+          format: 'JSON'
+        });
+        return await result.json();
+      } catch (e) {
+        logger.error(`[Global Heatmap Error] Connection ${connId}: ${e.message}`);
+        return { data: [] };
+      }
+    }));
+
+    const mergedHeatmap = heatmapData.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
+      return acc;
+    }, {});
+
+    finalStats.heatmap = mergedHeatmap;
+
+    res.json(finalStats);
+  } catch (err) {
+    logger.error(`[Global Stats Error] ${err.stack || err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/bras-distribution', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+
+    const distributionResults = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const query = `
+        SELECT
+            toDate(log_datetime) as date,
+            device_label as bras,
+            count() as cnt
+        FROM ${viewName}
+        WHERE log_datetime >= today() - 6
+        GROUP BY date, bras
+        ORDER BY date ASC`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+
+    const inactiveResults = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const query = `
+        SELECT
+            device_label as bras,
+            MAX(toDate(log_datetime)) as last_seen
+        FROM ${viewName}
+        GROUP BY bras
+        HAVING last_seen < today() - 6
+        ORDER BY last_seen ASC`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+
+    // Process distribution data
+    const allRows = distributionResults.flatMap(r => r.data || []);
+    const dateMap = {};
+    allRows.forEach(row => {
+      if (!dateMap[row.date]) dateMap[row.date] = {};
+      dateMap[row.date][row.bras] = (dateMap[row.date][row.bras] || 0) + row.cnt;
+    });
+    const distribution = Object.entries(dateMap).map(([date, data]) => ({ date, data })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Process inactive BRAS
+    const inactiveBras = inactiveResults.flatMap(r => r.data || []).map(item => ({
+      bras: item.bras,
+      lastSeen: item.last_seen
+    }));
+
+    res.json({ distribution, inactiveBras });
+  } catch (err) {
+    logger.error(`[BRAS Dist Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const final = Object.entries(merged).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt }));
+    res.json(final.sort((a, b) => a.hour - b.hour));
+  } catch (err) {
+    logger.error(`[Hourly Traffic Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/traffic-trend', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now() - interval 1 day) AND ${tsCol} < toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
+      return acc;
+    }, {});
+    const final = Object.entries(merged).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt }));
+    res.json(final.sort((a, b) => a.hour - b.hour));
+  } catch (err) {
+    logger.error(`[Traffic Trend Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/stats/heatmap', authMiddleware, async (req, res) => {
+  try {
+    const activeIds = await resolveActiveConnections(req);
+    const results = await Promise.all(activeIds.map(async (connId) => {
+      const client = await getClickHouseClient(connId);
+      const viewName = getFullyQualifiedView(connId);
+      const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+      const query = `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) GROUP BY date, hour ORDER BY date, hour`;
+      const result = await client.query({ query, format: 'JSON' });
+      return await result.json();
+    }));
+    const merged = results.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
+      return acc;
+    }, {});
+    res.json(merged);
+  } catch (err) {
+    logger.error(`[Heatmap Error] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function initColumns(connectionId) {
   try {
     const client = await getClickHouseClient(connectionId);
     const viewName = getFullyQualifiedView(connectionId);
     const result = await client.query({ query: `DESCRIBE TABLE ${viewName}`, format: 'JSON' });
     const data = await result.json();
-  const cols = data.data.map(col => ({ name: col.name, type: col.type }));
+    const cols = data.data.map(col => ({ name: col.name, type: col.type })).filter(c => c && c.name);
     cachedColumns.set(connectionId, cols);
     return cols;
   } catch (err) { return null; }
@@ -436,14 +764,14 @@ app.get('/api/columns', authMiddleware, async (req, res) => {
         if (cols) allCols.push(...cols);
       }
     }
-    const uniqueCols = Array.from(new Map(allCols.map(c => [c.name, c])).values());
+    const uniqueCols = Array.from(new Map(allCols.filter(c => c && c.name).map(c => [c.name, c])).values());
     res.json(uniqueCols);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-app.post('/api/query', authMiddleware, async (req, res) => {
+app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req, res) => {
   try {
-    writeLog(`\n[API] Incoming Query: ${JSON.stringify(req.body, null, 2)}`);
+    logger.info(`\n[API] Incoming Query: ${JSON.stringify(req.body, null, 2)}`);
     const { filters = {}, page = 1, pageSize = 50, sortColumn = '', sortOrder = 'DESC' } = req.body;
     const limit = Math.min(parseInt(pageSize, 10) || 50, 10000);
     const offset = (Math.max(parseInt(page, 10) || 1, 1) - 1) * limit;
@@ -456,32 +784,37 @@ app.post('/api/query', authMiddleware, async (req, res) => {
     const queryResults = await Promise.all(activeIds.map(async (connId) => {
       const client = await getClickHouseClient(connId);
       const viewName = getFullyQualifiedView(connId);
-      const { where, params } = buildWhereClause(filters, connId);
+      const { where, params } = buildWhereClause(filters, connId, cachedColumns);
 
-      let orderCol = resolveColumn(sortColumn, connId);
+      let orderCol = resolveColumn(sortColumn, connId, cachedColumns);
       if (!orderCol && sortColumn === 'timestamp') {
-        // Optimization: For sorting, if timestamp is requested, use log_date for partition pruning
         const cols = cachedColumns.get(connId) || [];
         if (cols.some(c => c.name === 'log_date')) {
           orderCol = 'log_date';
         }
       }
-      if (!orderCol) orderCol = resolveColumn('timestamp', connId) || 'log_date';
+      if (!orderCol) orderCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_date';
 
       const escapedView = viewName.includes('.') ? `\`${viewName.split('.')[0]}\`.\`${viewName.split('.')[1]}\`` : `\`${viewName}\``;
-
-      // FIX: Ensure there is a space before WHERE if where exists
       const whereClause = where ? ` ${where}` : '';
       const query = `SELECT * FROM ${escapedView}${whereClause} ORDER BY \`${orderCol}\` ${order} LIMIT ${limit} OFFSET ${offset}`;
 
-      writeLog(`\n[ClickHouse Execute] Connection: ${connId}\nSQL: ${query}`);
+      const debugRow = await db.prepare('SELECT value FROM system_settings WHERE key = ?').get('debug_mode');
+      const debugEnabled = debugRow?.value === 'true';
 
-      const result = await client.query({ query, format: 'JSONEachRow', abort_signal: controller.signal });
+      if (debugEnabled) {
+        logger.info(`\n[DEBUG-EXECUTION] 🚀 Sending to ClickHouse:`);
+        logger.info(`  SQL: ${query}`);
+        logger.info(`  Params: ${JSON.stringify(params, null, 2)}`);
+        logger.info(`  Connection: ${connId}\n`);
+      }
+
+      const result = await client.query({ query, params, format: 'JSONEachRow', abort_signal: controller.signal });
       const rows = await result.json();
 
       let total = 0;
       const countQuery = `SELECT count() as total FROM ${escapedView}${whereClause}`;
-      const countResult = await client.query({ query: countQuery, format: 'JSON', abort_signal: controller.signal });
+      const countResult = await client.query({ query: countQuery, params, format: 'JSON', abort_signal: controller.signal });
       const countData = await countResult.json();
       total = parseInt(countData.data[0].total, 10);
 
@@ -491,9 +824,9 @@ app.post('/api/query', authMiddleware, async (req, res) => {
     const combinedRows = queryResults.flatMap(r => r.rows);
     const combinedTotal = queryResults.reduce((acc, r) => acc + r.total, 0);
 
-    const debugValue = await getSystemSetting('debug_mode', 'true');
-    const debugEnabled = debugValue === 'true';
-    writeLog(`[DebugSetting] debug_mode: ${debugValue}, enabled: ${debugEnabled}`);
+    const debugRow = await db.prepare('SELECT value FROM system_settings WHERE key = ?').get('debug_mode');
+    const debugEnabled = debugRow?.value === 'true';
+    logger.info(`[DebugSetting] debug_mode: ${debugRow?.value}, enabled: ${debugEnabled}`);
 
     const debugSql = debugEnabled
       ? queryResults.map(r => `Connection ${r.connId}: ${r.query} | Params: ${JSON.stringify(r.params)}`).join('\n')
@@ -502,7 +835,7 @@ app.post('/api/query', authMiddleware, async (req, res) => {
     res.json({ data: combinedRows, total: combinedTotal, page: Math.floor(offset / limit) + 1, pageSize: limit, totalPages: Math.ceil(combinedTotal / limit), debugSql });
   } catch (err) {
     if (err.name === 'AbortError') return;
-    writeLog(`Query failed: ${err.message}`);
+    logger.error(`Query failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
@@ -514,9 +847,9 @@ app.post('/api/export', authMiddleware, async (req, res) => {
     const csvParts = await Promise.all(activeIds.map(async (connId) => {
       const client = await getClickHouseClient(connId);
       const viewName = getFullyQualifiedView(connId);
-      const { where, params } = buildWhereClause(filters, connId);
+      const { where, params } = buildWhereClause(filters, connId, cachedColumns);
       const safeMax = Math.min(parseInt(maxRows, 10) || 50000, 100000);
-      const result = await client.query({ query: `SELECT * FROM ${viewName} ${where} LIMIT ${safeMax}`, format: 'CSVWithNames' });
+      const result = await client.query({ query: `SELECT * FROM ${viewName} ${where} LIMIT ${safeMax}`, params, format: 'CSVWithNames' });
       return await result.text();
     }));
     let combinedCsv = csvParts[0] || '';
@@ -524,8 +857,16 @@ app.post('/api/export', authMiddleware, async (req, res) => {
       const lines = csvParts[i].split('\\n');
       combinedCsv += '\\n' + lines.slice(1).join('\\n');
     }
+
+    let filterString = 'all';
+    const activeFilters = Object.entries(filters).filter(([k, v]) => v && k !== 'datefrom' && k !== 'dateto');
+    if (activeFilters.length > 0) {
+      filterString = activeFilters.map(([k, v]) => `${k}-${v}`).join('_');
+    }
+    const filename = `ipdr_export_${Date.now()}_${filterString}.csv`;
+
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=ipdr_export_${Date.now()}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
     res.send(combinedCsv);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -533,135 +874,83 @@ app.post('/api/export', authMiddleware, async (req, res) => {
 app.post('/api/stats', authMiddleware, async (req, res) => {
   try {
     const { filters = {} } = req.body;
-
-    // Override stats filters with the global system period setting only as a fallback
     const modifiedFilters = { ...filters };
-    if (!modifiedFilters.datefrom || !modifiedFilters.dateto) {
-      const statsPeriod = await getSystemSetting('stats_period', 'today');
+
+    // Normalize filter keys to lowercase for consistency
+    const normalized = {};
+    Object.entries(modifiedFilters).forEach(([k, v]) => {
+      normalized[k.toLowerCase()] = v;
+    });
+
+    if (!normalized.datefrom || !normalized.dateto) {
+      const statsRow = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('stats_period');
+      const statsPeriod = statsRow?.value || 'today';
       const periodRange = getPeriodDateRange(statsPeriod);
       if (periodRange) {
-        modifiedFilters.datefrom = modifiedFilters.datefrom || periodRange.datefrom;
-        modifiedFilters.dateto = modifiedFilters.dateto || periodRange.dateto;
-        writeLog(`[Stats] Applying global period [${statsPeriod}] as fallback: ${periodRange.datefrom} to ${periodRange.dateto}`);
+        modifiedFilters.datefrom = modifiedFilters.datefrom || normalized.datefrom || periodRange.datefrom;
+        modifiedFilters.dateto = modifiedFilters.dateto || normalized.dateto || periodRange.dateto;
+        logger.info(`[Stats] Applying global period [${statsPeriod}] as fallback: ${periodRange.datefrom} to ${periodRange.dateto}`);
       }
     }
 
     const activeIds = await resolveActiveConnections(req);
-    const allStats = await Promise.all(activeIds.map(async (connId) => {
-      const { where, params } = buildWhereClause(modifiedFilters, connId);
-      const viewName = getFullyQualifiedView(connId);
-      const srcIpCol = resolveColumn('src_ip', connId) || 'src_ip';
-      const dstIpCol = resolveColumn('dst_ip', connId) || 'dest_ip';
-      const tsCol = resolveColumn('timestamp', connId) || 'log_datetime';
-      writeLog(`[Stats Debug] Connection: ${connId}, tsCol: ${tsCol}`);
+    const currentStats = await fetchStatsForRange(activeIds, modifiedFilters, cachedColumns);
 
-      const hourlyCol = (tsCol === 'log_date') ? 'log_datetime' : tsCol;
-      const protoCol = resolveColumn('protocol', connId) || 'proto';
-      const client = await getClickHouseClient(connId);
-      const controller = new AbortController();
+    const currentRange = { datefrom: modifiedFilters.datefrom, dateto: modifiedFilters.dateto };
+    const prevRange = getPreviousPeriodDateRange(currentRange);
+    let prevTraffic = [];
+    if (prevRange) {
+      const prevStats = await fetchStatsForRange(activeIds, prevRange, cachedColumns);
+      prevTraffic = prevStats.hourlyTraffic;
+    }
 
-      const queryDefs = [
-        { key: 'summary', sql: `SELECT count() as total_records, uniq(${srcIpCol}) as unique_sources, uniq(${dstIpCol}) as unique_destinations FROM ${viewName} ${where}` },
-        { key: 'bras', sql: `SELECT d.bras, ifNull(t.total_logs, 0) AS cnt FROM (SELECT DISTINCT device_label AS bras FROM ${viewName}) AS d LEFT JOIN (SELECT device_label AS bras, count(*) AS total_logs FROM ${viewName} ${where} GROUP BY device_label) AS t ON d.bras = t.bras ORDER BY cnt DESC LIMIT 10` },
-        { key: 'dest', sql: `SELECT toString(${dstIpCol}) as dst_ip, count() as cnt FROM ${viewName} ${where} GROUP BY dst_ip ORDER BY cnt DESC LIMIT 10` },
-        { key: 'country', sql: `SELECT toString(country) as country, count() as cnt FROM ${viewName} ${where} GROUP BY country ORDER BY cnt DESC LIMIT 10` },
-        { key: 'app', sql: `SELECT toString(application) as application, count() as cnt FROM ${viewName} ${where} GROUP BY application ORDER BY cnt DESC LIMIT 10` },
-        { key: 'org', sql: `SELECT toString(organization) as organization, count() as cnt FROM ${viewName} ${where} GROUP BY organization ORDER BY cnt DESC LIMIT 10` },
-        { key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} WHERE log_date >= toDate(now() - interval 7 day) GROUP BY log_date, bras ORDER BY log_date ASC` },
-      ];
-      if (hourlyCol) {
-        queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
+    const heatmapData = await Promise.all(activeIds.map(async (connId) => {
+      try {
+        const client = await getClickHouseClient(connId);
+        const viewName = getFullyQualifiedView(connId);
+        const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
+// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
+        const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns, { excludeDates: true });
+        const whereClause = where ? ` AND ${where.replace('WHERE', '').trim()}` : '';
+        const result = await client.query({
+          query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) ${whereClause} GROUP BY date, hour ORDER BY date, hour`,
+          params,
+          format: 'JSON'
+        });
+        return await result.json();
+// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
+      } catch (e) {
+        logger.error(`[Heatmap Error] Connection ${connId}: ${e.message}`);
+        return { data: [] };
       }
-
-      const results = [];
-      for (const def of queryDefs) {
-        try {
-          const res = await client.query({ query: def.sql, format: 'JSON', abort_signal: controller.signal });
-          results.push(await res.json());
-        } catch (e) {
-          writeLog(`[Stats Error] Conn: ${connId}, Query: ${def.key}, Error: ${e.message}`);
-          results.push({ data: [] });
-        }
-      }
-
-      return {
-        summary: results[0]?.data[0] || {},
-        brasDistribution: results[1]?.data || [],
-        brasDailyDistribution: results[6]?.data || [],
-        topDestinations: results[2]?.data || [],
-        topCountries: results[3]?.data || [],
-        topApps: results[4]?.data || [],
-        topOrgs: results[5]?.data || [],
-        hourlyTraffic: (hourlyCol && results[7]) ? results[7].data : [],
-      };
     }));
-    const finalSummary = { total_records: 0, unique_sources: 0, unique_destinations: 0 };
-    allStats.forEach(s => {
-      finalSummary.total_records += (s.summary.total_records || 0);
-      finalSummary.unique_sources += (s.summary.unique_sources || 0);
-      finalSummary.unique_destinations += (s.summary.unique_destinations || 0);
-    });
-    const mergeBras = allStats.flatMap(s => s.brasDistribution).reduce((acc, item) => {
-      acc[item.bras] = (acc[item.bras] || 0) + item.cnt;
+    const mergedHeatmap = heatmapData.flatMap(r => r.data || []).reduce((acc, item) => {
+      const key = `${item.date}_${item.hour}`;
+      acc[key] = (acc[key] || 0) + item.cnt;
       return acc;
     }, {});
-    const finalBras = Object.entries(mergeBras).map(([bras, cnt]) => ({ bras, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
 
-    const mergeBrasDaily = allStats.flatMap(s => s.brasDailyDistribution).reduce((acc, item) => {
-      const dateKey = item.log_date;
-      if (!acc[dateKey]) acc[dateKey] = {};
-      acc[dateKey][item.bras] = (acc[dateKey][item.bras] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalBrasDaily = Object.entries(mergeBrasDaily).map(([date, brasMap]) => ({
-      date,
-      data: brasMap
-    })).sort((a, b) => a.date.localeCompare(b.date));
-    const mergeDestinations = allStats.flatMap(s => s.topDestinations).reduce((acc, item) => {
-      acc[item.dst_ip] = (acc[item.dst_ip] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalDestinations = Object.entries(mergeDestinations).map(([dst_ip, cnt]) => ({ dst_ip, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeCountries = allStats.flatMap(s => s.topCountries).reduce((acc, item) => {
-      acc[item.country] = (acc[item.country] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalCountries = Object.entries(mergeCountries).map(([country, cnt]) => ({ country, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeApps = allStats.flatMap(s => s.topApps).reduce((acc, item) => {
-      acc[item.application] = (acc[item.application] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalApps = Object.entries(mergeApps).map(([app, cnt]) => ({ application: app, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeOrgs = allStats.flatMap(s => s.topOrgs).reduce((acc, item) => {
-      acc[item.organization] = (acc[item.organization] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalOrgs = Object.entries(mergeOrgs).map(([org, cnt]) => ({ organization: org, cnt })).sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-    const mergeTraffic = allStats.flatMap(s => s.hourlyTraffic).reduce((acc, item) => {
-      acc[item.hour] = (acc[item.hour] || 0) + item.cnt;
-      return acc;
-    }, {});
-    const finalTraffic = Object.entries(mergeTraffic).map(([hour, cnt]) => ({ hour: parseInt(hour), cnt })).sort((a, b) => a.hour - b.hour);
     res.json({
-      summary: finalSummary,
-      brasDistribution: finalBras,
-      brasDailyDistribution: finalBrasDaily,
-      topDestinations: finalDestinations,
-      topCountries: finalCountries,
-      topApps: finalApps,
-      topOrgs: finalOrgs,
-      hourlyTraffic: finalTraffic
+      ...currentStats,
+      previousHourlyTraffic: prevTraffic,
+      heatmap: mergedHeatmap
     });
   } catch (err) {
     if (err.name === 'AbortError') return;
+    logger.error(`[Stats API Error] ${err.stack || err.message}`);
     res.status(400).json({ error: err.message });
   }
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  🔒 IPDR API Server running on http://localhost:${PORT}`);
   console.log(`  📊 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}`);
   console.log(`  📁 Database:   ${process.env.CLICKHOUSE_DATABASE || 'syslogdb'}`);
   console.log(`  👁  View:       ${VIEW}\n`);
 });
+
+setInterval(runAnomalyDetection, 60 * 60 * 1000);
+setInterval(runWarrantMonitor, 15 * 60 * 1000);
+logger.info(`[Schedules] Anomaly detection (1h), Warrant monitor (15m)`);

@@ -1,19 +1,20 @@
 import jwt from 'jsonwebtoken';
 import db from './localdb.js';
+import configService from './src/services/configService.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ipdr-secret-key-2026';
+const getJWTSecret = () => configService.get('JWT_SECRET');
 
 export function generateToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role },
-    JWT_SECRET,
+    getJWTSecret(),
     { expiresIn: '24h' }
   );
 }
 
 export function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, getJWTSecret());
   } catch (err) {
     return null;
   }
@@ -36,10 +37,16 @@ export function authMiddleware(req, res, next) {
   next();
 }
 
+export function roleMiddleware(allowedRoles) {
+  return (req, res, next) => {
+    if (req.user && allowedRoles.includes(req.user.role)) {
+      next();
+    } else {
+      res.status(403).json({ error: `Required role: ${allowedRoles.join(' or ')}` });
+    }
+  };
+}
+
 export function adminMiddleware(req, res, next) {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Administrator privileges required' });
-  }
+  return roleMiddleware(['admin'])(req, res, next);
 }

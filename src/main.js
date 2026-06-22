@@ -3,27 +3,216 @@
    Wires up all modules: API, Filters, Table, Dashboard, Export
    ═══════════════════════════════════════════════════════════════════ */
 
-import { checkHealth, fetchColumns, queryData, fetchStats } from './api.js';
-import { renderFilters, getFilterValues, resetFilters, setDefaultFilterValue, getStartOfToday, getStartOfYesterday, getStartOfLastWeek } from './filters.js';
+import {
+  checkHealth,
+  fetchColumns,
+  queryData,
+  fetchStats,
+  fetchRelated,
+  getFavorites,
+  saveFavorite,
+  getPreferences,
+  logout,
+  getAlerts,
+  resolveAlert,
+  resolveAllAlerts,
+  clearAlerts,
+  adminGetConnections,
+  fetchBrasDistribution,
+  fetchHourlyTraffic,
+  fetchTrafficTrend,
+  fetchHeatmap
+} from './api.js';
+import { renderFilters, getFilterValues, resetFilters, setDefaultFilterValue, getStartOfToday, getStartOfYesterday, getStartOfLastWeek, applyFilterValues } from './filters.js';
 import { setColumns, renderRows, updatePagination, showLoading, onSort, getSortState } from './table.js';
-import { renderDashboard, updateDashboard, renderCharts } from './dashboard.js';
+import { renderDashboard, updateDashboard, renderCharts, updateBrasChart, updateHourlyChart, updateTrendChart, updateHeatmap } from './dashboard.js';
 import { downloadCSV } from './export.js';
 import { showToast } from './toast.js';
 import { loadSettings, saveSettings, getSettings, isAdmin } from './settings.js';
 import { initAdmin } from './admin.js';
+
+export async function pivotToFilter(column, value) {
+  const filters = getFilterValues();
+  filters[column] = value;
+  applyFilterValues(filters);
+  currentPage = 1;
+  await loadData('pivot-navigation');
+  await loadStats('pivot-navigation');
+  showToast(`Pivoted to ${column}: ${value}`, 'info', 2000);
+}
+window.pivotToFilter = pivotToFilter;
+
+export async function showRelatedEvents(srcIp, timestamp) {
+  showLoading();
+  try {
+    const data = await fetchRelated(srcIp, timestamp);
+
+    if (data.length === 0) {
+      showToast('No related events found in the 5m window', 'info');
+      return;
+    }
+
+    renderRows(data, 1, data.length);
+    updatePagination(1, 1, data.length, data.length);
+    showToast(`Found ${data.length} related events`, 'success');
+
+    if (!document.getElementById('btn-back-to-main')) {
+      const btn = document.createElement('button');
+      btn.id = 'btn-back-to-main';
+      btn.className = 'btn-secondary';
+      btn.textContent = '← Back to Filtered View';
+      btn.style.marginBottom = '10px';
+      btn.onclick = () => {
+        btn.remove();
+        loadData('back-from-related');
+      };
+      document.getElementById('table-controls').prepend(btn);
+    }
+  } catch (err) {
+    showToast(`Related events failed: ${err.message}`, 'error');
+  }
+}
+window.showRelatedEvents = showRelatedEvents;
 
 // ── State ──────────────────────────────────────────────────────
 let columns = [];
 let currentPage = 1;
 let currentPageSize = 50;
 let totalPages = 1;
+const isDashboardPage = window.location.pathname.includes('dashboard.html');
 
-// ── Init ───────────────────────────────────────────────────────
+/**
+ * Syncs filters between pages via URL parameters.
+ */
+function serializeFilters(filters) {
+  const params = new URLSearchParams();
+  for (const [key, val] of Object.entries(filters)) {
+    if (val === undefined || val === null || val === '') continue;
+    params.set(key, key === 'customrules' ? JSON.stringify(val) : val);
+  }
+  return params.toString();
+}
+
+function deserializeFilters(queryString) {
+  if (!queryString) return {};
+  const params = new URLSearchParams(queryString);
+  const filters = {};
+  for (const [key, val] of params.entries()) {
+    filters[key] = key === 'customrules' ? JSON.parse(val) : val;
+  }
+  return filters;
+}
+
+function navigateWithFilters(targetPage, overrides = {}) {
+  const currentFilters = getFilterValues();
+  const mergedFilters = { ...currentFilters, ...overrides };
+  const query = serializeFilters(mergedFilters);
+  window.location.href = `${targetPage}${query ? '?' + query : ''}`;
+}
+
+// ── Favorites Logic ───────────────────────────────────────────────
+async function initFavorites() {
+  const favoritesSelect = document.getElementById('filter-favorites');
+  const btnSaveFav = document.getElementById('btn-save-favorite');
+
+  if (!favoritesSelect || !btnSaveFav) return;
+
+  // Load initial favorites
+  await loadFavorites();
+
+  // Apply favorite on change
+  favoritesSelect.addEventListener('change', async (e) => {
+    const favId = e.target.value;
+    if (!favId) return;
+
+    const favorites = Array.from(favoritesSelect.options)
+      .filter(opt => opt.value !== '')
+      .map(opt => ({ id: opt.value, name: opt.textContent }));
+
+    try {
+      const data = await getFavorites();
+      const selected = data.find(f => f.id == favId);
+      if (selected) {
+        applyFilterValues(JSON.parse(selected.filter_values));
+        currentPage = 1;
+        loadData('favorite-applied');
+        loadStats('favorite-applied');
+        showToast(`Applied favorite: ${selected.name}`, 'success', 2000);
+      }
+    } catch (err) {
+      showToast('Failed to apply favorite', 'error');
+    }
+  });
+
+  // Save current filters as favorite
+  btnSaveFav.onclick = async () => {
+    const name = prompt('Enter a name for this filter preset:');
+    if (!name) return;
+
+    const filterValues = getFilterValues();
+    if (Object.keys(filterValues).length === 0) {
+      showToast('No active filters to save', 'warning');
+      return;
+    }
+
+    try {
+      await saveFavorite(name, filterValues);
+      showToast('Favorite saved!', 'success');
+      await loadFavorites();
+    } catch (e) {
+      showToast(`Save failed: ${e.message}`, 'error');
+    }
+  };
+}
+
+async function loadFavorites() {
+  const select = document.getElementById('filter-favorites');
+  if (!select) return;
+
+  try {
+    const favorites = await getFavorites();
+    select.innerHTML = '<option value="">— Saved Filters —</option>' +
+      favorites.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+  } catch (err) {
+    console.error('Failed to load favorites:', err);
+  }
+}
+
+async function loadGlobalCharts(reason = 'periodic-refresh') {
+  console.log(`[DEBUG] loadGlobalCharts triggered by: ${reason}`);
+
+  // Ensure containers are rendered first
+  renderCharts();
+
+  try {
+    // Fetch all graph data in parallel
+    const [brasData, hourlyData, trendData, heatmapData] = await Promise.all([
+      fetchBrasDistribution(),
+      fetchHourlyTraffic(),
+      fetchTrafficTrend(),
+      fetchHeatmap()
+    ]);
+
+    // Update each chart independently
+    updateBrasChart(brasData);
+    updateHourlyChart(hourlyData);
+    updateTrendChart(hourlyData, trendData);
+    updateHeatmap(heatmapData);
+
+  } catch (err) {
+    console.error('Global charts load failed:', err);
+    if (reason === 'initial-load') {
+      showToast('Failed to load global analytics', 'error', 5000);
+    }
+  }
+}
+
 async function initializeApp() {
   // 1. Auth Check - MUST be first
   const token = localStorage.getItem('ipdr_token');
-  if (!token) {
-    window.location.href = '/login';
+  const isLoginPage = window.location.pathname === '/login.html' || window.location.pathname === '/login';
+  if (!token && !isLoginPage) {
+    window.location.href = '/login.html';
     return;
   }
 
@@ -40,9 +229,6 @@ async function initializeApp() {
       logoH1.textContent = userSettings.globalParams.orgName;
     }
 
-    // Render dashboard skeleton immediately
-    renderDashboard();
-
     // Health check
     await doHealthCheck();
 
@@ -58,29 +244,54 @@ async function initializeApp() {
       // Populate Connection Selector
       await initConnectionSelector();
 
+      // Load User Preferences
+      const prefs = await getPreferences();
+
       // Apply column visibility
       const visibleColNames = userSettings.visibleColumns.length > 0
         ? userSettings.visibleColumns
         : columns.map(c => c.name);
 
       const filteredCols = columns.filter(c => visibleColNames.includes(c.name));
+      const finalCols = filteredCols.length > 0 ? filteredCols : columns;
 
-      // Initialize UI
-      setColumns(filteredCols);
-      renderFilters(columns);
-      setDefaultFilterValue('dateFrom', getStartOfToday());
+      // Initialize Shared UI
       initSettingsModal(columns);
-      initPeriodSelector();
       initAdmin();
+      initAlerts();
 
-      // Set initial active period to 'Today'
-      document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
-      const todayBtn = document.querySelector('.btn-period[data-period="today"]');
-      if (todayBtn) todayBtn.classList.add('active');
+      // Handle Page-Specific Init
+      if (isDashboardPage) {
+        renderDashboard();
+        initPeriodSelector();
 
-      // Load initial data and stats
-      loadData('initial-load');
-      loadStats('initial-load');
+        // Apply URL filters
+        const urlFilters = deserializeFilters(window.location.search.substring(1));
+        if (Object.keys(urlFilters).length > 0) {
+          applyFilterValues(urlFilters);
+        }
+
+        await loadStats('initial-load');
+        await loadGlobalCharts('initial-load');
+      } else {
+        setColumns(finalCols);
+        renderFilters(columns);
+        setDefaultFilterValue('dateFrom', getStartOfToday());
+        initFavorites();
+
+        // Apply URL filters
+        const urlFilters = deserializeFilters(window.location.search.substring(1));
+        if (Object.keys(urlFilters).length > 0) {
+          applyFilterValues(urlFilters);
+        }
+
+        // Set initial active period to 'Today'
+        document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
+        const todayBtn = document.querySelector('.btn-period[data-period="today"]');
+        if (todayBtn) todayBtn.classList.add('active');
+
+        loadData('initial-load');
+      }
 
     } catch (err) {
       showToast(`Column discovery failed: ${err.message}`, 'error', 8000);
@@ -150,18 +361,39 @@ document.addEventListener('DOMContentLoaded', () => {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-        });
+        await logout();
       } catch (e) {
         console.error('Logout API failed', e);
       } finally {
         localStorage.removeItem('ipdr_token');
         localStorage.removeItem('ipdr_user');
-        window.location.href = '/login';
+        window.location.href = '/login.html';
       }
     });
+  }
+
+  const brasMgmtBtn = document.getElementById('btn-bras-mgmt');
+  if (brasMgmtBtn) {
+    brasMgmtBtn.onclick = () => {
+      window.location.href = 'bras-list.html';
+    };
+  }
+
+  const auditLogsBtn = document.getElementById('btn-audit-logs');
+  if (auditLogsBtn) {
+    auditLogsBtn.onclick = () => {
+      window.location.href = 'audit-logs.html';
+    };
+  }
+
+  const dashboardBtn = document.getElementById('btn-go-dashboard');
+  if (dashboardBtn) {
+    dashboardBtn.onclick = () => navigateWithFilters('dashboard.html');
+  }
+
+  const recordsBtn = document.getElementById('btn-go-records');
+  if (recordsBtn) {
+    recordsBtn.onclick = () => navigateWithFilters('index.html');
   }
 
   const sizeSelect = document.getElementById('page-size-select');
@@ -185,7 +417,16 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('btn-search')?.click();
     }
   });
+
+  // Global charts refresh every 15 minutes
+  if (isDashboardPage) {
+    setInterval(() => loadGlobalCharts('periodic-refresh'), 15 * 60 * 1000);
+  }
 });
+
+window.navigateToRecordsWithFilter = (column, value) => {
+  navigateWithFilters('index.html', { [column]: value });
+};
 
 // ── Period Selector Logic ──────────────────────────────────────
 function initPeriodSelector() {
@@ -235,7 +476,9 @@ function initSettingsModal(allCols) {
 
   const current = getSettings();
 
-  columnList.innerHTML = allCols.map(col => `
+  columnList.innerHTML = allCols
+    .filter(col => col && col.name)
+    .map(col => `
     <label class="col-item">
       <input type="checkbox" data-col="${col.name}" ${current.visibleColumns.length === 0 || current.visibleColumns.includes(col.name) ? 'checked' : ''} />
       <span>${col.name}</span>
@@ -297,11 +540,7 @@ async function initConnectionSelector() {
   if (!select) return;
 
   try {
-    const res = await fetch('/api/admin/connections', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('ipdr_token')}` }
-    });
-    const conns = await res.json();
-
+    const conns = await adminGetConnections();
     select.innerHTML = conns.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
     if (conns.length === 0) {
       showToast('No connections assigned to user', 'warning');
@@ -363,10 +602,11 @@ async function loadStats(reason = 'unknown') {
   console.log(`[DEBUG] loadStats triggered by: ${reason}`);
   try {
     const filters = getFilterValues();
-    const stats = await fetchStats(filters);
+    const connectionId = document.getElementById('filter-connection')?.value || '0';
+    const stats = await fetchStats(filters, connectionId);
     if (!stats) return;
     updateDashboard(stats);
-    renderCharts(stats);
+    // Global charts are now handled by loadGlobalCharts to reduce DB load
   } catch (err) {
     console.error('Stats load failed:', err);
   }
@@ -391,3 +631,82 @@ async function doHealthCheck() {
 }
 
 setInterval(doHealthCheck, 30000);
+
+// ── Alert Notifications Logic ──────────────────────────────────────
+async function initAlerts() {
+  const btnAlerts = document.getElementById('btn-alerts');
+  const panel = document.getElementById('alerts-panel');
+  const btnClose = document.getElementById('btn-close-alerts');
+  const btnResolveAll = document.getElementById('btn-resolve-all');
+  const btnClear = document.getElementById('btn-clear-alerts');
+
+  if (!btnAlerts || !panel) return;
+
+  btnAlerts.onclick = () => {
+    panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+  };
+
+  btnClose.onclick = () => {
+    panel.style.display = 'none';
+  };
+
+  btnResolveAll.onclick = async () => {
+    try {
+      await resolveAllAlerts();
+      showToast('All alerts resolved', 'success');
+      updateAlerts();
+    } catch (err) {
+      showToast('Failed to resolve alerts', 'error');
+    }
+  };
+
+  btnClear.onclick = async () => {
+    if (!confirm('Clear all alert history?')) return;
+    try {
+      await clearAlerts();
+      showToast('Alert history cleared', 'success');
+      updateAlerts();
+    } catch (err) {
+      showToast('Failed to clear alerts', 'error');
+    }
+  };
+
+  // Initial load and periodic poll
+  updateAlerts();
+  setInterval(updateAlerts, 30000);
+}
+
+async function updateAlerts() {
+  try {
+    const alerts = await getAlerts();
+    const countBadge = document.getElementById('alert-count');
+    const list = document.getElementById('alerts-list');
+
+    if (countBadge) countBadge.textContent = alerts.length;
+    if (!list) return;
+
+    list.innerHTML = alerts.length === 0
+      ? '<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:0.9rem">No active alerts</div>'
+      : alerts.map(a => `
+          <div class="alert-item" onclick="resolveAlert(${a.id})">
+            <div class="alert-title">
+              <span>${a.warrant_name}</span>
+              <span class="alert-time">${new Date(a.detected_at).toLocaleString()}</span>
+            </div>
+            <code class="alert-sample">${a.log_sample || 'No sample available'}</code>
+          </div>
+        `).join('');
+  } catch (err) {
+    console.error('Alert update failed:', err);
+  }
+}
+
+window.resolveAlert = async (id) => {
+  try {
+    await resolveAlert(id, true);
+    showToast('Alert resolved', 'success');
+    updateAlerts();
+  } catch (err) {
+    showToast('Failed to resolve alert', 'error');
+  }
+};
