@@ -1,4 +1,5 @@
 import logger from '../../logger.js';
+import configService from './configService.js';
 
 /**
  * ProxmoxService handles secure communication with the Proxmox VE API.
@@ -6,9 +7,9 @@ import logger from '../../logger.js';
  */
 class ProxmoxService {
   constructor() {
-    this.host = process.env.PROXMOX_HOST || 'https://10.202.1.201:8006';
-    this.username = process.env.PROXMOX_USERNAME || 'root@pam';
-    this.password = process.env.PROXMOX_PASSWORD || 'Ewo9San7@KKG';
+    this.host = configService.get('PROXMOX_HOST', 'https://10.202.1.201:8006');
+    this.username = configService.get('PROXMOX_USERNAME', 'root@pam');
+    this.password = configService.get('PROXMOX_PASSWORD', 'Ewo9San7@KKG');
 
     this.ticket = null;
     this.csrfToken = null;
@@ -39,6 +40,7 @@ class ProxmoxService {
       }
 
       const json = await response.json();
+      logger.info(`[Proxmox] Auth response body: ${JSON.stringify(json)}`);
       const data = json.data;
 
       if (!data || !data.ticket) {
@@ -46,7 +48,11 @@ class ProxmoxService {
       }
 
       this.ticket = data.ticket;
-      this.csrfToken = json.CSRFPreventionToken;
+
+      // The CSRF token is located inside the data object in the response
+      this.csrfToken = data.CSRFPreventionToken;
+
+      logger.info(`[Proxmox] Token acquired. CSRF: ${this.csrfToken ? 'Present' : 'Missing'}`);
       // Tickets generally last for a while, but we'll refresh if we hit a 401
       this.ticketExpiry = Date.now() + (60 * 60 * 1000); // 1 hour cache
 
@@ -61,8 +67,8 @@ class ProxmoxService {
   /**
    * Generic request wrapper that handles authentication and headers.
    */
-  async request(endpoint, method = 'GET', body = null) {
-    if (!this.ticket || Date.now() > this.ticketExpiry) {
+  async request(endpoint, method = 'GET', body = null, retryCount = 0, forceAuth = false) {
+    if (forceAuth || !this.ticket || Date.now() > this.ticketExpiry) {
       await this.authenticate();
     }
 
@@ -70,23 +76,33 @@ class ProxmoxService {
       method,
       headers: {
         'Cookie': `PVEAuthCookie=${this.ticket}`,
-        'CSRFPreventionToken': this.csrfToken,
-        'Content-Type': 'application/json',
       },
     };
 
+    if (this.csrfToken) {
+      options.headers['CSRFPreventionToken'] = this.csrfToken;
+    }
+
+    logger.info(`[Proxmox] Request: ${method} ${endpoint} | Ticket: ${this.ticket ? 'Yes' : 'No'} | CSRF: ${this.csrfToken ? 'Yes' : 'No'}`);
+
     if (body) {
-      options.body = JSON.stringify(body);
+      if (body instanceof URLSearchParams) {
+        options.body = body;
+        options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      } else {
+        options.body = JSON.stringify(body);
+        options.headers['Content-Type'] = 'application/json';
+      }
     }
 
     try {
       const response = await fetch(`${this.host}${endpoint}`, options);
 
-      if (response.status === 401) {
+      if (response.status === 401 && retryCount < 1) {
         logger.warn('[Proxmox] Ticket expired, re-authenticating...');
         await this.authenticate();
         // Retry the request once
-        return this.request(endpoint, method, body);
+        return this.request(endpoint, method, body, retryCount + 1);
       }
 
       if (!response.ok) {
@@ -126,6 +142,38 @@ class ProxmoxService {
     return result.data;
   }
 
+  /**
+   * Adds a new entry to the BRAS ipset.
+   */
+  async addBras(cidr, platform, deviceName, deviceLabel) {
+    const endpoint = '/api2/json/nodes/pve1/lxc/205/firewall/ipset/bras';
+    const params = new URLSearchParams();
+    params.append('cidr', cidr);
+    const comment = `${platform} | ${deviceName} | ${deviceLabel} | ${cidr}`;
+    logger.info(`[Proxmox] Saving BRAS with comment: ${comment}`);
+    params.append('comment', comment);
+    return await this.request(endpoint, 'POST', params, 0, true);
+  }
+
+  /**
+   * Updates an existing BRAS entry.
+   */
+  async updateBras(cidr, platform, deviceName, deviceLabel) {
+    const endpoint = `/api2/json/nodes/pve1/lxc/205/firewall/ipset/bras/${cidr}`;
+    const params = new URLSearchParams();
+    const comment = `${platform} | ${deviceName} | ${deviceLabel} | ${cidr}`;
+    logger.info(`[Proxmox] Saving BRAS with comment: ${comment}`);
+    params.append('comment', comment);
+    return await this.request(endpoint, 'PUT', params, 0, true);
+  }
+
+  /**
+   * Deletes a BRAS entry.
+   */
+  async deleteBras(cidr) {
+    const endpoint = `/api2/json/nodes/pve1/lxc/205/firewall/ipset/bras/${cidr}`;
+    return await this.request(endpoint, 'DELETE', null, 0, true);
+  }
 }
 
 const proxmoxService = new ProxmoxService();

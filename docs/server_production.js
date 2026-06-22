@@ -26,7 +26,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
-console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 1.10`);
+console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.2`);
 app.use(cors());
 app.use(compression());
 app.use(express.json());
@@ -213,6 +213,8 @@ app.put('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin', 'manage
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── User Personalization ──────────────────────────────────────────────
+
 app.get('/api/filters/favorites', authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
@@ -259,6 +261,8 @@ app.post('/api/preferences', authMiddleware, (req, res) => {
     res.json({ message: 'Preferences updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ── Warrant & Alert System ──────────────────────────────────────────────
 
 app.get('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
   try {
@@ -351,34 +355,71 @@ app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manage
 
 // ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
 
-app.get('/api/proxmox/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
     const nodes = await proxmoxService.getNodes();
     res.json(nodes);
   } catch (err) {
-    logger.error(`[Proxmox Proxy Error] Nodes: ${err.message}`);
-    res.status(500).json({ error: 'Failed to fetch Proxmox nodes' });
+    logger.error(\`[Infra Bridge Error] Nodes: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to fetch cluster nodes' });
   }
 });
 
-app.get('/api/proxmox/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
     const vms = await proxmoxService.getVMs();
     res.json(vms);
   } catch (err) {
-    logger.error(`[Proxmox Proxy Error] VMs: ${err.message}`);
-    res.status(500).json({ error: 'Failed to fetch Proxmox VMs' });
+    logger.error(\`[Infra Bridge Error] VMs: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to fetch cluster VMs' });
   }
 });
 
-app.get('/api/proxmox/ipset/:node/:vmid', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
-    const { node, vmid } = req.params;
-    const ipset = await proxmoxService.getBrasIpSet(node, vmid);
-    res.json(ipset);
+    const bras = await proxmoxService.getStaticBrasIpSet();
+    res.json(bras);
   } catch (err) {
-    logger.error(`[Proxmox Proxy Error] IPSet ${node}/${vmid}: ${err.message}`);
-    res.status(500).json({ error: 'Failed to fetch IPSet data' });
+    logger.error(\`[Infra Bridge Error] Static BRAS IPSet: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
+  }
+});
+
+app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr, deviceName, deviceLabel } = req.body;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    const result = await proxmoxService.addBras(cidr, deviceName || '—', deviceLabel || '—');
+    res.json({ data: result.data, message: 'BRAS entry added successfully' });
+  } catch (err) {
+    logger.error(\`[Infra Bridge Error] Add BRAS: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to add BRAS entry' });
+  }
+});
+
+app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr, deviceName, deviceLabel } = req.body;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required in request body' });
+
+    const result = await proxmoxService.updateBras(cidr, deviceName || '—', deviceLabel || '—');
+    res.json({ data: result.data, message: 'BRAS entry updated successfully' });
+  } catch (err) {
+    logger.error(\`[Infra Bridge Error] Update BRAS: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to update BRAS entry' });
+  }
+});
+
+app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+  try {
+    const { cidr } = req.query;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required as a query parameter' });
+    const result = await proxmoxService.deleteBras(cidr);
+    res.json({ data: result.data, message: 'BRAS entry deleted successfully' });
+  } catch (err) {
+    logger.error(\`[Infra Bridge Error] Delete BRAS: \${err.message}\`);
+    res.status(500).json({ error: 'Failed to delete BRAS entry' });
   }
 });
 
@@ -480,21 +521,19 @@ app.get('/api/stats/global', authMiddleware, async (req, res) => {
         const client = await getClickHouseClient(connId);
         const viewName = getFullyQualifiedView(connId);
         const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-        const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns, { excludeDates: true });
-        const whereClause = where ? \` AND \${where.replace('WHERE', '').trim()}\` : '';
         const result = await client.query({
-          query: \`SELECT toDate(\${tsCol}) as date, toHour(\${tsCol}) as hour, count() as cnt FROM \${viewName} WHERE \${tsCol} >= toDate(now() - interval 30 day) \${whereClause} GROUP BY date, hour ORDER BY date, hour\`,
-          params,
+          query: \`SELECT toDate(\${tsCol}) as date, toHour(\${tsCol}) as hour, count() as cnt FROM \${viewName} WHERE \${tsCol} >= toDate(now() - interval 30 day) GROUP BY date, hour ORDER BY date, hour\`,
           format: 'JSON'
         });
         return await result.json();
       } catch (e) {
-        logger.error(\`[Heatmap Error] Connection \${connId}: \${e.message}\`);
+        logger.error(\`[Global Heatmap Error] Connection \${connId}: \${e.message}\`);
         return { data: [] };
       }
     }));
+
     const mergedHeatmap = heatmapData.flatMap(r => r.data || []).reduce((acc, item) => {
-      const key = \`${item.date}_\${item.hour}\`;
+      const key = \`\${item.date}_\${item.hour}\`;
       acc[key] = (acc[key] || 0) + item.cnt;
       return acc;
     }, {});
@@ -504,7 +543,7 @@ app.get('/api/stats/global', authMiddleware, async (req, res) => {
     res.json(finalStats);
   } catch (err) {
     logger.error(\`[Global Stats Error] \${err.stack || err.message}\`);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -632,6 +671,18 @@ app.get('/api/stats/heatmap', authMiddleware, async (req, res) => {
   }
 });
 
+async function initColumns(connectionId) {
+  try {
+    const client = await getClickHouseClient(connectionId);
+    const viewName = getFullyQualifiedView(connectionId);
+    const result = await client.query({ query: \`DESCRIBE TABLE \${viewName}\`, format: 'JSON' });
+    const data = await result.json();
+    const cols = data.data.map(col => ({ name: col.name, type: col.type })).filter(c => c && c.name);
+    cachedColumns.set(connectionId, cols);
+    return cols;
+  } catch (err) { return null; }
+}
+
 app.get('/api/columns', authMiddleware, async (req, res) => {
   try {
     const activeIds = await resolveActiveConnections(req);
@@ -648,18 +699,6 @@ app.get('/api/columns', authMiddleware, async (req, res) => {
     res.json(uniqueCols);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
-
-async function initColumns(connectionId) {
-  try {
-    const client = await getClickHouseClient(connectionId);
-    const viewName = getFullyQualifiedView(connectionId);
-    const result = await client.query({ query: \`DESCRIBE TABLE \${viewName}\`, format: 'JSON' });
-    const data = await result.json();
-    const cols = data.data.map(col => ({ name: col.name, type: col.type })).filter(c => c && c.name);
-    cachedColumns.set(connectionId, cols);
-    return cols;
-  } catch (err) { return null; }
-}
 
 app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req, res) => {
   try {
@@ -691,7 +730,7 @@ app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req,
       const whereClause = where ? \` \${where}\` : '';
       const query = \`SELECT * FROM \${escapedView}\${whereClause} ORDER BY \\\`\${orderCol}\\\` \${order} LIMIT \${limit} OFFSET \${offset}\`;
 
-      const debugRow = await db.prepare('SELECT value FROM la system_settings WHERE key = ?').get('debug_mode');
+      const debugRow = await db.prepare('SELECT value FROM system_settings WHERE key = ?').get('debug_mode');
       const debugEnabled = debugRow?.value === 'true';
 
       if (debugEnabled) {
@@ -716,7 +755,7 @@ app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req,
     const combinedRows = queryResults.flatMap(r => r.rows);
     const combinedTotal = queryResults.reduce((acc, r) => acc + r.total, 0);
 
-    const debugRow = await db.prepare('SELECT value FROM la system_settings WHERE key = ?').get('debug_mode');
+    const debugRow = await db.prepare('SELECT value FROM system_settings WHERE key = ?').get('debug_mode');
     const debugEnabled = debugRow?.value === 'true';
     logger.info(\`[DebugSetting] debug_mode: \${debugRow?.value}, enabled: \${debugEnabled}\`);
 

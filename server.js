@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import db from './localdb.js';
+import configService from './src/services/configService.js';
 import { generateToken, authMiddleware, adminMiddleware, roleMiddleware } from './auth.js';
 import logger from './logger.js';
 import { encrypt, decrypt } from './crypto.js';
@@ -20,8 +21,11 @@ import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitorin
 import { validate, schemas } from './src/services/validationService.js';
 import proxmoxService from './src/services/proxmoxService.js';
 
-if (!process.env.JWT_SECRET) {
-  console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
+// Initialize secrets from DB before booting server
+await configService.initialize();
+
+if (!configService.get('JWT_SECRET')) {
+  console.error('FATAL ERROR: JWT_SECRET is not defined in localdb system_settings.');
   process.exit(1);
 }
 
@@ -112,6 +116,18 @@ app.delete('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin']), as
     const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
     await logAuditAction(req.user.id, 'DELETE', 'user', id, user, null, req);
     res.json({ message: 'User deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/admin/audit', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+  try {
+    const logs = db.prepare(`
+      SELECT a.*, a.timestamp as created_at, u.username
+      FROM audit_logs a
+      LEFT JOIN users u ON a.user_id = u.id
+      ORDER BY a.timestamp DESC
+    `).all();
+    res.json(logs);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -378,7 +394,36 @@ app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), 
 app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
     const bras = await proxmoxService.getStaticBrasIpSet();
-    res.json(bras);
+
+    const transformed = bras.map(item => {
+      logger.info(`[BRAS-List] Processing item: ${JSON.stringify(item)}`);
+      const parts = (item.comment || '').split('|').map(p => p.trim());
+      const ip = parts.length > 0 ? parts[parts.length - 1] : '—';
+      const platform = parts.length > 0 ? parts[0] : '—';
+      let deviceName = '—';
+      let deviceLabel = '—';
+
+      if (parts.length >= 4) {
+        deviceName = parts[1];
+        deviceLabel = parts[2];
+      } else if (parts.length === 3) {
+        deviceName = parts[1];
+        // deviceLabel stays '—'
+      } else if (parts.length === 2) {
+        // Platform and IP only
+      }
+
+      return {
+        cidr: item.cidr,
+        platform: platform || '—',
+        deviceName: deviceName || '—',
+        deviceLabel: deviceLabel || '—',
+        ip: ip || '—',
+        digest: item.digest
+      };
+    });
+
+    res.json(transformed);
   } catch (err) {
     logger.error(`[Infra Bridge Error] Static BRAS IPSet: ${err.message}`);
     res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
@@ -387,10 +432,13 @@ app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manage
 
 app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
-    const { cidr, deviceName, deviceLabel } = req.body;
+    const { cidr, platform, deviceName, deviceLabel } = req.body;
     if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
 
-    const result = await proxmoxService.addBras(cidr, deviceName || '—', deviceLabel || '—');
+    const result = await proxmoxService.addBras(cidr, platform || '—', deviceName || '—', deviceLabel || '—');
+
+    await logAuditAction(req.user.id, 'CREATE', 'bras', cidr, null, { cidr, platform, deviceName, deviceLabel }, req);
+
     res.json({ data: result.data, message: 'BRAS entry added successfully' });
   } catch (err) {
     logger.error(`[Infra Bridge Error] Add BRAS: ${err.message}`);
@@ -398,12 +446,20 @@ app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager'])
   }
 });
 
-app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.put('/api/infra/bras/:cidr', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
-    const { cidr, deviceName, deviceLabel } = req.body;
-    if (!cidr) return res.status(400).json({ error: 'CIDR is required in request body' });
+    const { cidr: bodyCidr, platform, deviceName, deviceLabel } = req.body;
+    const cidr = req.params.cidr || bodyCidr;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
 
-    const result = await proxmoxService.updateBras(cidr, deviceName || '—', deviceLabel || '—');
+    // Fetch current state for audit log
+    const currentList = await proxmoxService.getStaticBrasIpSet();
+    const oldEntry = currentList.find(item => item.cidr === cidr);
+
+    const result = await proxmoxService.updateBras(cidr, platform || '—', deviceName || '—', deviceLabel || '—');
+
+    await logAuditAction(req.user.id, 'UPDATE', 'bras', cidr, oldEntry, { platform, deviceName, deviceLabel }, req);
+
     res.json({ data: result.data, message: 'BRAS entry updated successfully' });
   } catch (err) {
     logger.error(`[Infra Bridge Error] Update BRAS: ${err.message}`);
@@ -411,11 +467,19 @@ app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']),
   }
 });
 
-app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.delete('/api/infra/bras/:cidr', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
   try {
-    const { cidr } = req.query;
-    if (!cidr) return res.status(400).json({ error: 'CIDR is required as a query parameter' });
+    const { cidr } = req.params;
+    if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
+
+    // Fetch current state for audit log
+    const currentList = await proxmoxService.getStaticBrasIpSet();
+    const oldEntry = currentList.find(item => item.cidr === cidr);
+
     const result = await proxmoxService.deleteBras(cidr);
+
+    await logAuditAction(req.user.id, 'DELETE', 'bras', cidr, oldEntry, null, req);
+
     res.json({ data: result.data, message: 'BRAS entry deleted successfully' });
   } catch (err) {
     logger.error(`[Infra Bridge Error] Delete BRAS: ${err.message}`);

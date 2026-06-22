@@ -1,22 +1,21 @@
 import jwt from 'jsonwebtoken';
 import db from './localdb.js';
+import configService from './src/services/configService.js';
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const getJWTSecret = () => configService.get('JWT_SECRET');
 
 export function generateToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role },
-    JWT_SECRET,
+    getJWTSecret(),
     { expiresIn: '24h' }
   );
 }
 
 export function verifyToken(token) {
   try {
-    console.log(`[Auth] Verifying token with secret: ${JWT_SECRET}`);
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, getJWTSecret());
   } catch (err) {
-    console.log(`[Auth] Token verification failed: ${err.message}`);
     return null;
   }
 }

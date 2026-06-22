@@ -378,6 +378,14 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.href = 'bras-list.html';
     };
   }
+
+  const auditLogsBtn = document.getElementById('btn-audit-logs');
+  if (auditLogsBtn) {
+    auditLogsBtn.onclick = () => {
+      window.location.href = 'audit-logs.html';
+    };
+  }
+
   const dashboardBtn = document.getElementById('btn-go-dashboard');
   if (dashboardBtn) {
     dashboardBtn.onclick = () => navigateWithFilters('dashboard.html');
