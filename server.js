@@ -45,6 +45,9 @@ const apiLimiter = rateLimit({
 
 app.use('/api', apiLimiter);
 
+app.use(express.static(path.join(process.cwd(), 'dist')));
+app.use(express.static(process.cwd()));
+
 app.use((req, res, next) => {
   logger.info(`[HTTP] ${req.method} ${req.url}`);
   next();
