@@ -133,4 +133,27 @@ If you are using a zip file for transfer (as discussed earlier), your package sh
 ├── login.html
 ├── api-docs.html
 ├── src/ (all services inside)
-└── docs/ (optional)
+---
+
+## 6. Maintenance & Future Updates
+
+To update the application after the initial installation, avoid manual file uploads. The most reliable method is using a Git-based workflow:
+
+### Standard Update Workflow
+Run these commands in the project directory to apply changes from development:
+```bash
+# 1. Pull latest code
+git pull origin main
+
+# 2. Sync dependencies (if package.json changed)
+npm install
+
+# 3. Rebuild Frontend (CRITICAL: ensures index.html matches assets)
+npm run build
+
+# 4. Restart Backend
+pm2 restart all
+
+# 5. Restart Web Server (if Nginx config changed)
+sudo systemctl restart nginx
+```

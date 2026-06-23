@@ -131,13 +131,38 @@ npm run build
 pm2 restart all
 
 ---
-From now on, your update process
+## 🚀 Routine Update Process
 
-Whenever you make a change in Devnly need to run these 4 lines onyour production server:
+Whenever you make changes in the development environment, run these steps on the production server to deploy them safely:
 
+```bash
+# 1. Pull latest code from repository
+git pull origin main
+
+# 2. Install new dependencies (if any)
+npm install
+
+# 3. Rebuild the frontend assets (CRITICAL)
+# This ensures the index.html and the hashed asset files in /dist are synchronized.
+npm run build
+
+# 4. Restart the backend API
+pm2 restart all
+
+# 5. Refresh Nginx (only if config changes were made)
+sudo systemctl restart nginx
+```
+
+### 💡 Pro-Tip: Automated Deployment Script
+To make this even faster, create a script called `deploy.sh` in your project folder:
+```bash
+#!/bin/bash
 git pull origin main
 npm install
 npm run build
 pm2 restart all
+sudo systemctl restart nginx
+echo "Deployment Successful!"
+```
+Run it with: `chmod +x deploy.sh && ./deploy.sh`
 
-No more copy-pasting, no more Syn HTML files.
