@@ -261,26 +261,23 @@ export async function fetchStatsForRange(activeIds, filters, cachedColumns) {
     queryDefs.push({ key: 'bras_daily', sql: `SELECT log_date, device_label as bras, count(*) as cnt FROM ${viewName} ${dailyWhere} GROUP BY log_date, bras ORDER BY log_date ASC` });
 
     if (hourlyCol) {
-      queryDefs.push({ key: 'hourly', sql: `SELECT toHour(${hourlyCol}) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
+      queryDefs.push({ key: 'hourly', sql: `SELECT toHour(toTimeZone(toDateTime(${hourlyCol}), 'Asia/Karachi')) as hour, count() as cnt FROM ${viewName} ${where} GROUP BY hour ORDER BY hour` });
     }
 
-    const results = [];
-    for (const def of queryDefs) {
+    const results = await Promise.all(queryDefs.map(async (def) => {
       try {
-        // We must ensure we are using the correct params for the specific query
-        // For bras_daily, we use the same params as other queries because the placeholders are identical
         const res = await client.query({
           query: def.sql,
           params: params,
           format: 'JSON',
           abort_signal: controller.signal
         });
-        results.push(await res.json());
+        return await res.json();
       } catch (e) {
         logger.error(`[Stats Query Error] ${def.key}: ${e.message}`);
-        results.push({ data: [] });
+        return { data: [] };
       }
-    }
+    }));
 
     return {
       summary: results[0]?.data[0] || {},

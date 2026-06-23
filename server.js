@@ -80,6 +80,7 @@ app.get('/', (req, res) => { res.sendFile(path.join(process.cwd(), 'index.html')
 app.get('/login', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
 app.get('/login.html', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
 app.get('/api-docs', (req, res) => { res.sendFile(path.join(process.cwd(), 'api-docs.html')); });
+app.get('/api-docs.html', (req, res) => { res.sendFile(path.join(process.cwd(), 'api-docs.html')); });
 
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -678,7 +679,7 @@ app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res) => {
       const client = await getClickHouseClient(connId);
       const viewName = getFullyQualifiedView(connId);
       const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const query = `SELECT toHour(toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi')) as hour, count() as cnt FROM ${viewName} WHERE toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi') >= toStartOfDay(toTimeZone(now(), 'Asia/Karachi')) GROUP BY hour ORDER BY hour`;
       const result = await client.query({ query, format: 'JSON' });
       return await result.json();
     }));
@@ -701,7 +702,7 @@ app.get('/api/stats/traffic-trend', authMiddleware, async (req, res) => {
       const client = await getClickHouseClient(connId);
       const viewName = getFullyQualifiedView(connId);
       const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-      const query = `SELECT toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toStartOfDay(now() - interval 1 day) AND ${tsCol} < toStartOfDay(now()) GROUP BY hour ORDER BY hour`;
+      const query = `SELECT toHour(toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi')) as hour, count() as cnt FROM ${viewName} WHERE toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi') >= toStartOfDay(toTimeZone(now() - interval 1 day, 'Asia/Karachi')) AND toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi') < toStartOfDay(toTimeZone(now(), 'Asia/Karachi')) GROUP BY hour ORDER BY hour`;
       const result = await client.query({ query, format: 'JSON' });
       return await result.json();
     }));
@@ -909,16 +910,14 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
         const client = await getClickHouseClient(connId);
         const viewName = getFullyQualifiedView(connId);
         const tsCol = resolveColumn('timestamp', connId, cachedColumns) || 'log_datetime';
-// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
         const { where, params } = buildWhereClause(modifiedFilters, connId, cachedColumns, { excludeDates: true });
         const whereClause = where ? ` AND ${where.replace('WHERE', '').trim()}` : '';
         const result = await client.query({
-          query: `SELECT toDate(${tsCol}) as date, toHour(${tsCol}) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) ${whereClause} GROUP BY date, hour ORDER BY date, hour`,
+          query: `SELECT toDate(toTimeZone(toDateTime(${tsCol}), 'Asia/Karalchi')) as date, toHour(toTimeZone(toDateTime(${tsCol}), 'Asia/Karachi')) as hour, count() as cnt FROM ${viewName} WHERE ${tsCol} >= toDate(now() - interval 30 day) ${whereClause} GROUP BY date, hour ORDER BY date, hour`,
           params,
           format: 'JSON'
         });
         return await result.json();
-// laB de l'utilisateur.L'un des filtres_date est absent, donc on utilise la plage par défaut.
       } catch (e) {
         logger.error(`[Heatmap Error] Connection ${connId}: ${e.message}`);
         return { data: [] };

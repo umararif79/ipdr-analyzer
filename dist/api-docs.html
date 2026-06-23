@@ -1,0 +1,1961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPDR API Specification v1.7</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --bg-color: #fafafa;
+            --sidebar-bg: #ffffff;
+            --border-color: #e8e8e8;
+            --text-main: #3b4151;
+            --text-muted: #757575;
+            --get-color: #61affe;
+            --post-color: #49cc90;
+            --put-color: #fca130;
+            --del-color: #ff4d4f;
+            --code-bg: #272822;
+            --code-text: #f8f8f2;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: #fff;
+            position: sticky;
+            top: 0;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.2rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-group {
+            padding: 15px 0;
+        }
+
+        .nav-group-title {
+            padding: 0 20px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .nav-item {
+            padding: 8px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--text-main);
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .nav-item:hover { background: #f0f7ff; }
+        .nav-item.active { background: #eef4ff; border-right: 3px solid var(--primary-color); font-weight: 500; }
+
+        .method-badge {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            width: 45px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        .bg-get { background: var(--get-color); }
+        .bg-post { background: var(--post-color); }
+        .bg-put { background: var(--put-color); }
+        .bg-del { background: var(--del-color); }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px;
+        }
+
+        .endpoint-section {
+            display: none;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .endpoint-section.active { display: block; }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .path-bar {
+            background: white;
+            border: 1px solid var(--border-color);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .description {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+        }
+
+        /* Grid Layout for Docs vs Playground */
+        .api-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+        }
+        th { background: #f8f9fa; color: var(--text-muted); }
+
+        /* Playground */
+        .playground {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            position: sticky;
+            top: 40px;
+        }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.85rem; font-weight: bold; color: var(--text-muted); }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+            background: #fafafa;
+        }
+
+        .btn-execute {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        .btn-execute:hover { background: #0062cc; }
+        .btn-execute:disabled { background: #ccc; cursor: not-allowed; }
+
+        .response-area {
+            margin-top: 20px;
+        }
+        .response-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+            color: var(--text-muted);
+        }
+        pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 15px;
+            border-radius: 5px;
+            overflow: auto;
+            font-size: 0.85rem;
+            margin: 0;
+            max-height: 400px;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1><i class="fas fa-database"></i> IPDR API <small style="font-size: 0.7rem; opacity: 0.7;">v1.7</small></h1>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Authentication</div>
+            <div style="padding: 0 20px 15px 20px;">
+                <label style="font-size: 0.7rem; color: var(--text-muted); font-weight: bold; display: block; margin-bottom: 5px;">BEARER TOKEN</label>
+                <input type="text" id="api-token" placeholder="Paste JWT token here..." style="width: 100%; padding: 6px; font-size: 0.8rem; border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;">
+            </div>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Dashboard Analytics</div>
+            <a href="#stats-bras" class="nav-item" onclick="showSection('stats-bras')">
+                <span class="method-badge bg-get">GET</span> BRAS Distribution
+            </a>
+            <a href="#stats-hourly" class="nav-item" onclick="showSection('stats-hourly')">
+                <span class="method-badge bg-get">GET</span> Hourly Traffic
+            </a>
+            <a href="#stats-trend" class="nav-item" onclick="showSection('stats-trend')">
+                <span class="method-badge bg-get">GET</span> Traffic Trend
+            </a>
+            <a href="#stats-heatmap" class="nav-item" onclick="showSection('stats-heatmap')">
+                <span class="method-badge bg-get">GET</span> Traffic Heatmap
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">System</div>
+            <a href="#health" class="nav-item active" onclick="showSection('health')">
+                <span class="method-badge bg-get">GET</span> Health
+            </a>
+            <a href="#columns" class="nav-item" onclick="showSection('columns')">
+                <span class="method-badge bg-get">GET</span> Columns
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Data Operations</div>
+            <a href="#query" class="nav-item" onclick="showSection('query')">
+                <span class="method-badge bg-post">POST</span> Query
+            </a>
+            <a href="#stats" class="nav-item" onclick="showSection('stats')">
+                <span class="method-badge bg-post">POST</span> Stats
+            </a>
+            <a href="#related" class="nav-item" onclick="showSection('related')">
+                <span class="method-badge bg-get">GET</span> Related Logs
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">User Personalization</div>
+            <a href="#favs-get" class="nav-item" onclick="showSection('favs-get')">
+                <span class="method-badge bg-get">GET</span> My Favorites
+            </a>
+            <a href="#favs-post" class="nav-item" onclick="showSection('favs-post')">
+                <span class="method-badge bg-post">POST</span> Save Favorite
+            </a>
+            <a href="#favs-del" class="nav-item" onclick="showSection('favs-del')">
+                <span class="method-badge bg-del">DEL</span> Remove Favorite
+            </a>
+            <a href="#pref-get" class="nav-item" onclick="showSection('pref-get')">
+                <span class="method-badge bg-get">GET</span> My Preferences
+            </a>
+            <a href="#pref-post" class="nav-item" onclick="showSection('pref-post')">
+                <span class="method-badge bg-post">POST</span> Update Preferences
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Administration</div>
+            <a href="#admin-conns-get" class="nav-item" onclick="showSection('admin-conns-get')">
+                <span class="method-badge bg-get">GET</span> List Connections
+            </a>
+            <a href="#admin-conns-post" class="nav-item" onclick="showSection('admin-conns-post')">
+                <span class="method-badge bg-post">POST</span> Create Connection
+            </a>
+            <a href="#admin-conns-put" class="nav-item" onclick="showSection('admin-conns-put')">
+                <span class="method-badge bg-put">PUT</span> Update Connection
+            </a>
+            <a href="#admin-conns-del" class="nav-item" onclick="showSection('admin-conns-del')">
+                <span class="method-badge bg-del">DEL</span> Delete Connection
+            </a>
+            <a href="#admin-users-get" class="nav-item" onclick="showSection('admin-users-get')">
+                <span class="method-badge bg-get">GET</span> List Users
+            </a>
+            <a href="#admin-users-post" class="nav-item" onclick="showSection('admin-users-post')">
+                <span class="method-badge bg-post">POST</span> Create User
+            </a>
+            <a href="#admin-users-put" class="nav-item" onclick="showSection('admin-users-put')">
+                <span class="method-badge bg-put">PUT</span> Update User
+            </a>
+            <a href="#admin-users-del" class="nav-item" onclick="showSection('admin-users-del')">
+                <span class="method-badge bg-del">DEL</span> Delete User
+            </a>
+            <div style="padding: 5px 20px; font-size: 0.7rem; color: var(--text-muted); font-weight: bold; text-transform: uppercase; margin-top: 10px;">Notifications & Governance</div>
+            <a href="#admin-notif-get" class="nav-item" onclick="showSection('admin-notif-get')">
+                <span class="method-badge bg-get">GET</span> Notif Settings
+            </a>
+            <a href="#admin-notif-post" class="nav-item" onclick="showSection('admin-notif-post')">
+                <span class="method-badge bg-post">POST</span> Update Notifs
+            </a>
+            <a href="#admin-warrants-get" class="nav-item" onclick="showSection('admin-warrants-get')">
+                <span class="method-badge bg-get">GET</span> List Warrants
+            </a>
+            <a href="#admin-warrants-post" class="nav-item" onclick="showSection('admin-warrants-post')">
+                <span class="method-badge bg-post">POST</span> Create Warrant
+            </a>
+            <a href="#admin-warrants-put" class="nav-item" onclick="showSection('admin-warrants-put')">
+                <span class="method-badge bg-put">PUT</span> Update Warrant
+            </a>
+            <a href="#admin-warrants-del" class="nav-item" onclick="showSection('admin-warrants-del')">
+                <span class="method-badge bg-del">DEL</span> Delete Warrant
+            </a>
+            <a href="#alerts-get" class="nav-item" onclick="showSection('alerts-get')">
+                <span class="method-badge bg-get">GET</span> View Alerts
+            </a>
+            <a href="#alerts-put" class="nav-item" onclick="showSection('alerts-put')">
+                <span class="method-badge bg-put">PUT</span> Resolve Alert
+            </a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-group-title">Infrastructure Bridge</div>
+            <a href="#infra-nodes" class="nav-item" onclick="showSection('infra-nodes')">
+                <span class="method-badge bg-get">GET</span> Cluster Nodes
+            </a>
+            <a href="#infra-vms" class="nav-item" onclick="showSection('infra-vms')">
+                <span class="method-badge bg-get">GET</span> Cluster VMs
+            </a>
+            <a href="#infra-bras" class="nav-item" onclick="showSection('infra-bras')">
+                <span class="method-badge bg-get">GET</span> BRAS IPSet
+            </a>
+            <a href="#infra-bras-post" class="nav-item" onclick="showSection('infra-bras-post')">
+                <span class="method-badge bg-post">POST</span> Add BRAS
+            </a>
+            <a href="#infra-bras-put" class="nav-item" onclick="showSection('infra-bras-put')">
+                <span class="method-badge bg-put">PUT</span> Update BRAS
+            </a>
+            <a href="#infra-bras-del" class="nav-item" onclick="showSection('infra-bras-del')">
+                <span class="method-badge bg-del">DEL</span> Delete BRAS
+            </a>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- BRAS DISTRIBUTION -->
+        <div id="stats-bras" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/bras-distribution
+                </div>
+            </div>
+            <div class="description">Returns daily distribution of records per BRAS for the last 7 days.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>date</td><td>string</td><td>ISO Date (YYYY-MM-DD)</td></tr>
+                            <tr><td>data</td><td>JSON</td><td>Map of { bras_label: count }</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsBras()">Execute</button>
+                    <div id="res-stats-bras" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-bras">Status: -</span><span id="time-stats-bras">0ms</span></div>
+                        <pre id="body-stats-bras"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HOURLY TRAFFIC -->
+        <div id="stats-hourly" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/hourly-traffic
+                </div>
+            </div>
+            <div class="description">Returns traffic volume distributed by hour of the day.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>hour</td><td>integer</td><td>Hour of day (0-23)</td></tr>
+                            <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsHourly()">Execute</button>
+                    <div id="res-stats-hourly" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-hourly">Status: -</span><span id="time-stats-hourly">0ms</span></div>
+                        <pre id="body-stats-hourly"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TRAFFIC TREND -->
+        <div id="stats-trend" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/traffic-trend
+                </div>
+            </div>
+            <div class="description">Returns hourly traffic for current vs previous period for trend comparison.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>hour</td><td>integer</td><td>Hour of day (0-23)</td></tr>
+                            <tr><td>cnt</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsTrend()">Execute</button>
+                    <div id="res-stats-trend" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-trend">Status: -</span><span id="time-stats-trend">0ms</span></div>
+                        <pre id="body-stats-trend"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HEATMAP -->
+        <div id="stats-heatmap" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/stats/heatmap
+                </div>
+            </div>
+            <div class="description">Returns a 30-day traffic heatmap (Date x Hour).</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>key</td><td>string</td><td>Composite key "YYYY-MM-DD_H"</td></tr>
+                            <tr><td>value</td><td>number</td><td>Number of hits</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execStatsHeatmap()">Execute</button>
+                    <div id="res-stats-heatmap" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats-heatmap">Status: -</span><span id="time-stats-heatmap">0ms</span></div>
+                        <pre id="body-stats-heatmap"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HEALTH -->
+        <div id="health" class="endpoint-section active">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/health
+                </div>
+            </div>
+            <div class="description">Checks connectivity of assigned ClickHouse connections. Response status is 'ok' if all are reachable.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>status</td><td>string</td><td>'ok' or 'partial_error' (if some fail)</td></tr>
+                            <tr><td>connections</td><td>array</td><td>List of {id, status, message}</td></tr>
+                            <tr><td>timestamp</td><td>ISO8601</td><td>Server time</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execHealth()">Execute</button>
+                    <div id="res-health" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-health">Status: -</span><span id="time-health">0ms</span></div>
+                        <pre id="body-health"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNS -->
+        <div id="columns" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/columns
+                </div>
+            </div>
+            <div class="description">Discovers available columns in the log view across all authorized connections.</div>
+
+            <div class="api-grid">
+                <div>
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <p>Returns a unique set of column definitions:</p>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Actual column name in ClickHouse</td></tr>
+                            <tr><td>type</td><td>string</td><td>ClickHouse data type</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execColumns()">Execute</button>
+                    <div id="res-columns" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-columns">Status: -</span><span id="time-columns">0ms</span></div>
+                        <pre id="body-columns"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- QUERY -->
+        <div id="query" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/query
+                </div>
+            </div>
+            <div class="description">Fetch logs. The server automatically resolves which connections to query based on the user's identity.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>filters</td><td>Object</td><td>Filter key-values (e.g. {"srcIp": "1.1.1.1"})</td></tr>
+                            <tr><td>page</td><td>Int</td><td>Current page number (Default: 1)</td></tr>
+                            <tr><td>pageSize</td><td>Int</td><td>Records per page (Default: 50)</td></tr>
+                            <tr><td>sortColumn</td><td>String</td><td>Column to sort by (e.g. "timestamp")</td></tr>
+                            <tr><td>sortOrder</td><td>Enum</td><td>"DESC" or "ASC"</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Request Body (JSON)</label>
+                            <button onclick="loadSample('query')" style="font-size: 0.7rem; cursor: pointer; padding: 2px 8px; background: #eee; border: 1px solid #ccc; border-radius: 3px;">Load Sample</button>
+                        </div>
+                        <textarea id="req-query" rows="12" style="font-family: monospace;">{
+  "filters": {
+    "dateFrom": "2026-05-10",
+    "srcIp": ""
+  },
+  "page": 1,
+  "pageSize": 50,
+  "sortColumn": "timestamp",
+  "sortOrder": "DESC"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" id="btn-query" onclick="execQuery()">Execute</button>
+                    <div id="res-query" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-query">Status: -</span><span id="time-query">0ms</span></div>
+                        <pre id="body-query"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATS -->
+        <div id="stats" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/stats
+                </div>
+            </div>
+            <div class="description">Aggregates log data for the dashboard.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>filters</td><td>Object</td><td>Same filter set as /api/query</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="margin: 0;">Request Body (JSON)</label>
+                            <button onclick="loadSample('stats')" style="font-size: 0.7rem; cursor: pointer; padding: 2px 8px; background: #eee; border: 1px solid #ccc; border-radius: 3px;">Load Sample</button>
+                        </div>
+                        <textarea id="req-stats" rows="10" style="font-family: monospace;">{
+  "filters": {
+    "dateFrom": "2026-05-01",
+    "dateTo": "2026-05-14",
+    "protocol": "UDP"
+  }
+}</textarea>
+                    </div>
+                    <button class="btn-execute" id="btn-stats" onclick="execStats()">Execute</button>
+                    <div id="res-stats" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-stats">Status: -</span><span id="time-stats">0ms</span></div>
+                        <pre id="body-stats"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RELATED LOGS -->
+        <div id="related" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/related
+                </div>
+            </div>
+            <div class="description">Retrieves logs from all authorized connections within a 10-minute window around a specific event.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Query Params</div>
+                    <table>
+                        <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>src_ip</td><td>String</td><td>Source IP of the anchor event</td></tr>
+                            <tr><td>timestamp</td><td>String</td><td>ISO8601 timestamp of the anchor event</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Query Parameters</label>
+                        <input type="text" id="req-related-params" value="src_ip=1.1.1.1&timestamp=2026-05-30T10:00:00Z" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execRelated()">Execute</button>
+                    <div id="res-related" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-related">Status: -</span><span id="time-related">0ms</span></div>
+                        <pre id="body-related"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAVORITES GET -->
+        <div id="favs-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/filters/favorites
+                </div>
+            </div>
+            <div class="description">Lists favorite filters saved by the authenticated user.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Favorite ID</td></tr>
+                            <tr><td>name</td><td>string</td><td>Name of the favorite</td></tr>
+                            <tr><td>filter_values</td><td>JSON</td><td>Stored filter configuration</td></tr>
+                            <tr><td>created_at</td><td>ISO8601</td><td>Creation time</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execFavsGet()">Execute</button>
+                    <div id="res-favs-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-favs-get">Status: -</span><span id="time-favs-get">0ms</span></div>
+                        <pre id="body-favs-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAVORITES POST -->
+        <div id="favs-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/filters/favorites
+                </div>
+            </div>
+            <div class="description">Saves a new favorite filter for the authenticated user.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Friendly name for the favorite</td></tr>
+                            <tr><td>filter_values</td><td>Object</td><td>Filter configuration object</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-favs-post" rows="8">{
+  "name": "My Security Filter",
+  "filter_values": {
+    "srcIp": "192.168.1.1",
+    "protocol": "TCP"
+  }
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execFavsPost()">Execute</button>
+                    <div id="res-favs-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-favs-post">Status: -</span><span id="time-favs-post">0ms</span></div>
+                        <pre id="body-favs-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAVORITES DELETE -->
+        <div id="favs-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/filters/favorites/{id}
+                </div>
+            </div>
+            <div class="description">Removes a favorite filter by its ID.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Favorite ID</label>
+                        <input type="text" id="req-favs-del-id" value="1" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execFavsDel()">Execute</button>
+                    <div id="res-favs-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-favs-del">Status: -</span><span id="time-favs-del">0ms</span></div>
+                        <pre id="body-favs-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PREFERENCES GET -->
+        <div id="pref-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/preferences
+                </div>
+            </div>
+            <div class="description">Retrieves UI layout and personalization settings for the user.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>dashboard_layout</td><td>JSON</td><td>Saved configuration of dashboard widgets</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execPrefGet()">Execute</button>
+                    <div id="res-pref-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-pref-get">Status: -</span><span id="time-pref-get">0ms</span></div>
+                        <pre id="body-pref-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PREFERENCES POST -->
+        <div id="pref-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/preferences
+                </div>
+            </div>
+            <div class="description">Saves user UI preferences.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>dashboard_layout</td><td>JSON</td><td>Configuration to persist</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-pref-post" rows="8">{
+  "dashboard_layout": {
+    "widgets": ["traffic_chart", "top_ips"],
+    "theme": "dark"
+  }
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execPrefPost()">Execute</button>
+                    <div id="res-pref-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-pref-post">Status: -</span><span id="time-pref-post">0ms</span></div>
+                        <pre id="body-pref-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN CONNECTIONS GET -->
+        <div id="admin-conns-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/connections
+                </div>
+            </div>
+            <div class="description">Lists all configured ClickHouse connections. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Connection ID</td></tr>
+                            <tr><td>label</td><td>string</td><td>Descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>ClickHouse host URL</td></tr>
+                            <tr><td>username</td><td>string</td><td>Database username</td></tr>
+                            <tr><td>database</td><td>string</td><td>Database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminConnsGet()">Execute</button>
+                    <div id="res-admin-conns-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-get">Status: -</span><span id="time-admin-conns-get">0ms</span></div>
+                        <pre id="body-admin-conns-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/connections
+                </div>
+            </div>
+            <div class="description">Create a new ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>label</td><td>string</td><td>Descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>ClickHouse host URL</td></tr>
+                            <tr><td>username</td><td>string</td><td>Database username</td></tr>
+                            <tr><td>password</td><td>string</td><td>Database password</td></tr>
+                            <tr><td>database</td><td>string</td><td>Database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-conns-post" rows="8">{
+  "label": "Wavecomm-Production",
+  "host": "http://10.202.1.206:8123",
+  "username": "default",
+  "password": "your-password",
+  "database": "syslogdb"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsPost()">Execute</button>
+                    <div id="res-admin-conns-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-post">Status: -</span><span id="time-admin-conns-post">0ms</span></div>
+                        <pre id="body-admin-conns-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/admin/connections/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>label</td><td>string</td><td>New descriptive name</td></tr>
+                            <tr><td>host</td><td>string</td><td>New ClickHouse host</td></tr>
+                            <tr><td>username</td><td>string</td><td>New username</td></tr>
+                            <tr><td>password</td><td>string</td><td>New password (optional)</td></tr>
+                            <tr><td>database</td><td>string</td><td>New database name</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-conns-put" rows="9">{
+  "id": 1,
+  "label": "Wavecomm",
+  "host": "http://10.202.1.206:8123",
+  "username": "default",
+  "password": "",
+  "database": "syslogdb"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsPut()">Execute</button>
+                    <div id="res-admin-conns-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-put">Status: -</span><span id="time-admin-conns-put">0ms</span></div>
+                        <pre id="body-admin-conns-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-conns-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/admin/connections/{id}
+                </div>
+            </div>
+            <div class="description">Delete a ClickHouse connection. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Connection ID</label>
+                        <input type="text" id="req-admin-conns-del-id" value="1" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execAdminConnsDel()">Execute</button>
+                    <div id="res-admin-conns-del" la="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-conns-del">Status: -</span><span id="time-admin-conns-del">0ms</span></div>
+                        <pre id="body-admin-conns-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN USERS -->
+        <div id="admin-users-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/users
+                </div>
+            </div>
+            <div class="description">Lists all users. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>User ID</td></tr>
+                            <tr><td>username</td><td>string</td><td>Username</td></tr>
+                            <tr><td>role</td><td>string</td><td>User role: 'admin', 'manager', 'auditor', or 'user'</td></tr>
+                            <tr><td>created_at</td><td>ISO8601</td><td>Creation timestamp</td></tr>
+                            <tr><td>connectionIds</td><td>array</td><td>List of assigned connection IDs</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminUsersGet()">Execute</button>
+                    <div id="res-admin-users-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-get">Status: -</span><span id="time-admin-users-get">0ms</span></div>
+                        <pre id="body-admin-users-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/users
+                </div>
+            </div>
+            <div class="description">Create a new user. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>username</td><td>string</td><td>Username</td></tr>
+                            <tr><td>password</td><td>string</td><td>Plain text password</td></tr>
+                            <tr><td>role</td><td>string</td><td>'admin', 'manager', 'auditor', or 'user'</td></tr>
+                            <tr><td>connectionIds</td><td>array/int</td><td>Connection IDs to assign</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-users-post" rows="10">{
+  "username": "newuser",
+  "password": "secure-password",
+  "role": "user",
+  "connectionIds": [1]
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersPost()">Execute</button>
+                    <div id="res-admin-users-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-post">Status: -</span><span id="time-admin-users-post">0ms</span></div>
+                        <pre id="body-admin-users-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/admin/users/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing user. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>username</td><td>string</td><td>New username</td></tr>
+                            <tr><td>password</td><td>string</td><td>New password (optional)</td></tr>
+                            <tr><td>role</td><td>string</td><td>'admin', 'manager', 'auditor', or 'user'</td></tr>
+                            <tr><td>connectionIds</td><td>array/int</td><td>Updated connection assignments</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-users-put" rows="11">{
+  "id": 1,
+  "username": "updateduser",
+  "password": "",
+  "role": "admin",
+  "connectionIds": [1, 2]
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersPut()">Execute</button>
+                    <div id="res-admin-users-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-put">Status: -</span><span id="time-admin-users-put">0ms</span></div>
+                        <pre id="body-admin-users-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-users-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/admin/users/{id}
+                </div>
+            </div>
+            <div class="description">Delete a user. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>User ID</label>
+                        <input type="text" id="req-admin-users-del-id" value="1" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execAdminUsersDel()">Execute</button>
+                    <div id="res-admin-users-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-users-del">Status: -</span><span id="time-admin-users-del">0ms</span></div>
+                        <pre id="body-admin-users-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN WARRANTS -->
+        <div id="admin-warrants-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/warrants
+                </div>
+            </div>
+            <div class="description">Lists all monitoring warrants. Admin only.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Warrant ID</td></tr>
+                            <tr><td>name</td><td>string</td><td>Warrant name</td></tr>
+                            <tr><td>conditions</td><td>JSON</td><td>Array of monitoring conditions</td></tr>
+                            <tr><td>active</td><td>boolean</td><td>Is active</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAdminWarrantsGet()">Execute</button>
+                    <div id="res-admin-warrants-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-get">Status: -</span><span id="time-admin-warrants-get">0ms</span></div>
+                        <pre id="body-admin-warrants-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/warrants
+                </div>
+            </div>
+            <div class="description">Create a new monitoring warrant. Admin only.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Warrant name</td></tr>
+                            <tr><td>conditions</td><td>Array</td><td>Conditions to monitor</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-warrants-post" rows="8">{
+  "name": "Facebook Monitor",
+  "conditions": [
+    { "column": "application", "operator": "LIKE", "value": "%facebook%" }
+  ]
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsPost()">Execute</button>
+                    <div id="res-admin-warrants-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-post">Status: -</span><span id="time-admin-warrants-post">0ms</span></div>
+                        <pre id="body-admin-warrants-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/admin/warrants/{id}
+                </div>
+            </div>
+            <div class="description">Update an existing warrant. Admin only.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>name</td><td>string</td><td>Updated name</td></tr>
+                            <tr><td>conditions</td><td>Array</td><td>Updated conditions</td></tr>
+                            <tr><td>active</td><td>boolean</td><td>Active status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-warrants-put" rows="9">{
+  "id": 1,
+  "name": "Updated Warrant",
+  "conditions": [
+    { "column": "dest_ip", "operator": "=", "value": "1.1.1.1" }
+  ],
+  "active": true
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsPut()">Execute</button>
+                    <div id="res-admin-warrants-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-put">Status: -</span><span id="time-admin-warrants-put">0ms</span></div>
+                        <pre id="body-admin-warrants-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-warrants-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/admin/warrants/{id}
+                </div>
+            </div>
+            <div class="description">Delete a warrant. Admin only.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>message</td><td>string</td><td>Success message</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Warrant ID</label>
+                        <input type="text" id="req-admin-warrants-del-id" value="1" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execAdminWarrantsDel()">Execute</button>
+                    <div id="res-admin-warrants-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-warrants-del">Status: -</span><span id="time-admin-warrants-del">0ms</span></div>
+                        <pre id="body-admin-warrants-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROXMOX BRAS IPSET -->
+        <div id="infra-bras" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/infra/bras-list
+                </div>
+            </div>
+            <div class="description">Fetches the static 'bras' IPSet from Proxmox (Node: pve1, VMID: 205). Handles authentication and ticket management automatically.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <p>Returns a list of IP addresses and metadata from the Proxmox firewall IPSet.</p>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The IP address or range</td></tr>
+                            <tr><td>comment</td><td>string</td><td>Description/Label of the BRAS</td></tr>
+                            <tr><td>digest</td><td>string</td><td>Internal Proxmox hash</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execInfraBras()">Execute</button>
+                    <div id="res-infra-bras" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras">Status: -</span><span id="time-infra-bras">0ms</span></div>
+                        <pre id="body-infra-bras"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADD BRAS -->
+        <div id="infra-bras-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Adds a new CIDR entry to the BRAS IPSet in Proxmox.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The IP range (Required)</td></tr>
+                            <tr><td>deviceName</td><td>string</td><td>Name of the device</td></tr>
+                            <tr><td>deviceLabel</td><td>string</td><td>Label/Alias for the device</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-infra-bras-post" rows="8">{
+  "cidr": "10.10.10.0/24",
+  "deviceName": "BRAS-01",
+  "deviceLabel": "City-Center"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasPost()">Execute</button>
+                    <div id="res-infra-bras-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-post">Status: -</span><span id="time-infra-bras-post">0ms</span></div>
+                        <pre id="body-infra-bras-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- UPDATE BRAS -->
+        <div id="infra-bras-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Updates metadata for an existing CIDR in the BRAS IPSet.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The IP range to update (Required)</td></tr>
+                            <tr><td>deviceName</td><td>string</td><td>Updated name of the device</td></tr>
+                            <tr><td>deviceLabel</td><td>string</td><td>Updated label for the device</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-infra-bras-put" rows="8">{
+  "cidr": "10.10.10.0/24",
+  "deviceName": "BRAS-01-Updated",
+  "deviceLabel": "City-Center-New"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasPut()">Execute</button>
+                    <div id="res-infra-bras-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-put">Status: -</span><span id="time-infra-bras-put">0ms</span></div>
+                        <pre id="body-infra-bras-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DELETE BRAS -->
+        <div id="infra-bras-del" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-del">DELETE</span> /api/infra/bras
+                </div>
+            </div>
+            <div class="description">Removes a CIDR entry from the BRAS IPSet.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Query Parameters</div>
+                    <table>
+                        <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>cidr</td><td>string</td><td>The CIDR to delete (e.g. 10.10.10.0/24)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>CIDR (Query Param)</label>
+                        <input type="text" id="req-infra-bras-del-cidr" value="10.10.10.0/24" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                    </div>
+                    <button class="btn-execute" onclick="execInfraBrasDel()">Execute</button>
+                    <div id="res-infra-bras-del" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-bras-del">Status: -</span><span id="time-infra-bras-del">0ms</span></div>
+                        <pre id="body-infra-bras-del"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROXMOX NODES -->
+        <div id="infra-nodes" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/infra/nodes
+                </div>
+            </div>
+            <div class="description">Returns a list of all physical nodes in the Proxmox cluster.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>node</td><td>string</td><td>Hostname of the node</td></tr>
+                            <tr><td>status</td><td>string</td><td>Node status (online/offline)</td></tr>
+                            <tr><td>cpu</td><td>number</td><td>CPU usage %</td></tr>
+                            <tr><td>mem</td><td>number</td><td>Memory usage %</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execProxmoxNodes()">Execute</button>
+                    <div id="res-infra-nodes" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-nodes">Status: -</span><span id="time-infra-nodes">0ms</span></div>
+                        <pre id="body-infra-nodes"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROXMOX VMS -->
+        <div id="infra-vms" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/infra/vms
+                </div>
+            </div>
+            <div class="description">Returns all virtual machines and containers across the cluster.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>vmid</td><td>integer</td><td>Virtual Machine ID</td></tr>
+                            <tr><td>name</td><td>string</td><td>VM/LXC Name</td></tr>
+                            <tr><td>node</td><td>string</td><td>Node where VM is hosted</td></tr>
+                            <tr><td>type</td><td>string</td><td>'vm' or 'lxc'</td></tr>
+                            <tr><td>status</td><td>string</td><td>running/stopped</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execProxmoxVms()">Execute</button>
+                    <div id="res-infra-vms" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-infra-vms">Status: -</span><span id="time-infra-vms">0ms</span></div>
+                        <pre id="body-infra-vms"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- INFRA IPSET REMOVED -->
+
+        <!-- ALERTS -->
+        <div id="alerts-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/alerts
+                </div>
+            </div>
+            <div class="description">Fetch all unresolved alerts. Available to all authenticated users.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>id</td><td>integer</td><td>Alert ID</td></tr>
+                            <tr><td>warrant_id</td><td>integer</td><td>Linked Warrant ID</td></tr>
+                            <tr><td>warrant_name</td><td>string</td><td>Name of triggering warrant</td></tr>
+                            <tr><td>detected_at</td><td>ISO8601</td><td>Timestamp of detection</td></tr>
+                            <tr><td>log_sample</td><td>string</td><td>JSON sample of triggering log</td></tr>
+                            <tr><td>resolved</td><td>boolean</td><td>Resolution status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execAlertsGet()">Execute</button>
+                    <div id="res-alerts-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-alerts-get">Status: -</span><span id="time-alerts-get">0ms</span></div>
+                        <pre id="body-alerts-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="alerts-put" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-put">PUT</span> /api/alerts/{id}
+                </div>
+            </div>
+            <div class="description">Resolve an alert. Available to all authenticated users.</div>
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>resolved</td><td>boolean</td><td>True to mark as resolved</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-alerts-put" rows="3">{
+  "id": 1,
+  "resolved": true
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execAlertsPut()">Execute</button>
+                    <div id="res-alerts-put" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-alerts-put">Status: -</span><span id="time-alerts-put">0ms</span></div>
+                        <pre id="body-alerts-put"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- NOTIFICATIONS -->
+        <div id="admin-notif-get" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-get">GET</span> /api/admin/notifications
+                </div>
+            </div>
+            <div class="description">Retrieves notification provider configuration. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-info-circle"></i> Response</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>provider</td><td>string</td><td>'telegram' or 'slack'</td></tr>
+                            <tr><td>token</td><td>string</td><td>Bot API token (for Telegram)</td></tr>
+                            <tr><td>chatId</td><td>string</td><td>Target Chat ID (for Telegram)</td></tr>
+                            <tr><td>webhookUrl</td><td>string</td><td>Webhook URL (for Slack)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <button class="btn-execute" onclick="execNotifGet()">Execute</button>
+                    <div id="res-admin-notif-get" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-notif-get">Status: -</span><span id="time-admin-notif-get">0ms</span></div>
+                        <pre id="body-admin-notif-get"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin-notif-post" class="endpoint-section">
+            <div class="endpoint-header">
+                <div class="path-bar">
+                    <span class="method-badge bg-post">POST</span> /api/admin/notifications
+                </div>
+            </div>
+            <div class="description">Updates notification provider settings. Admin only.</div>
+
+            <div class="api-grid">
+                <div class="docs-panel">
+                    <div class="section-title"><i class="fas fa-keyboard"></i> Request Body</div>
+                    <table>
+                        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                        <tbody>
+                            <tr><td>provider</td><td>string</td><td>'telegram' or 'slack'</td></tr>
+                            <tr><td>token</td><td>string</td><td>Bot API token (optional)</td></tr>
+                            <tr><td>chatId</td><td>string</td><td>Chat ID (optional)</td></tr>
+                            <tr><td>webhookUrl</td><td>string</td><td>Webhook URL (optional)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="playground">
+                    <div class="section-title">Try it out</div>
+                    <div class="form-group">
+                        <label>Request Body (JSON)</label>
+                        <textarea id="req-admin-notif-post" rows="8">{
+  "provider": "telegram",
+  "token": "123456:ABC-DEF",
+  "chatId": "987654321"
+}</textarea>
+                    </div>
+                    <button class="btn-execute" onclick="execNotifPost()">Execute</button>
+                    <div id="res-admin-notif-post" class="response-area hidden">
+                        <div class="response-meta"><span id="stat-admin-notif-post">Status: -</span><span id="time-admin-notif-post">0ms</span></div>
+                        <pre id="body-admin-notif-post"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showSection(id) {
+            document.querySelectorAll('.endpoint-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+            const section = document.getElementById(id);
+            if (!section) return;
+            section.classList.add('active');
+
+            const navItem = document.querySelector(`.nav-item[onclick="showSection('${id}')"]`);
+            if (navItem) navItem.classList.add('active');
+        }
+
+        function loadSample(id) {
+            const samples = {
+                query: {
+                    filters: {
+                        dateFrom: "2026-05-10",
+                        srcIp: "192.168.1.1",
+                        dstIp: "8.8.8.8",
+                        protocol: "TCP"
+                    },
+                    page: 1,
+                    pageSize: 50,
+                    sortColumn: "timestamp",
+                    sortOrder: "DESC"
+                },
+                stats: {
+                    filters: {
+                        dateFrom: "2026-05-01",
+                        dateTo: "2026-05-14",
+                        protocol: "UDP"
+                    }
+                }
+            };
+            const el = document.getElementById(`req-${id}`);
+            if (el) el.value = JSON.stringify(samples[id], null, 2);
+        }
+
+        async function callApi(endpoint, method = 'GET', body = null) {
+            const start = performance.now();
+            try {
+                const token = document.getElementById('api-token').value;
+                if (!token) {
+                    throw new Error('Missing Bearer Token. Please paste your JWT in the sidebar.');
+                }
+
+                const options = { method };
+                const headers = { 'Content-Type': 'application/json' };
+                headers['Authorization'] = `Bearer ${token}`;
+                options.headers = headers;
+
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                const res = await fetch(endpoint, options);
+
+                let data;
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    const text = await res.text();
+                    if (text.trim().startsWith('<')) {
+                        throw new Error(`Server returned HTML error page (${res.status}). Check server logs.`);
+                    }
+                    try {
+                        data = JSON.parse(text);
+                    } catch {
+                        data = { text: text };
+                    }
+                }
+                const duration = (performance.now() - start).toFixed(2);
+                return { status: res.status, data, duration };
+            } catch (err) {
+                return { status: 'Error', data: { error: err.message }, duration: 0 };
+            }
+        }
+
+        function renderRes(id, result) {
+            const area = document.getElementById(`res-${id}`);
+            if (!area) return;
+            area.classList.remove('hidden');
+            document.getElementById(`stat-${id}`).textContent = `Status: ${result.status}`;
+            document.getElementById(`time-${id}`).textContent = `${result.duration}ms`;
+            document.getElementById(`body-${id}`).textContent = JSON.stringify(result.data, null, 2);
+        }
+
+        async function execHealth() {
+            const res = await callApi('/api/health');
+            renderRes('health', res);
+        }
+        async function execColumns() {
+            const res = await callApi('/api/columns');
+            renderRes('columns', res);
+        }
+
+        async function execQuery() {
+            const btn = document.getElementById('btn-query');
+            if (btn) { btn.disabled = true; btn.textContent = 'Executing...'; }
+
+            try {
+                const body = JSON.parse(document.getElementById('req-query').value);
+                const res = await callApi('/api/query', 'POST', body);
+                renderRes('query', res);
+            } catch (err) {
+                renderRes('query', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Execute'; }
+            }
+        }
+
+        async function execStats() {
+            const btn = document.getElementById('btn-stats');
+            if (btn) { btn.disabled = true; btn.textContent = 'Executing...'; }
+
+            try {
+                const body = JSON.parse(document.getElementById('req-stats').value);
+                const res = await callApi('/api/stats', 'POST', body);
+                renderRes('stats', res);
+            } catch (err) {
+                renderRes('stats', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Execute'; }
+            }
+        }
+
+        async function execRelated() {
+            const params = document.getElementById('req-related-params').value;
+            const res = await callApi(`/api/related?${params}`);
+            renderRes('related', res);
+        }
+
+        async function execFavsGet() {
+            const res = await callApi('/api/filters/favorites');
+            renderRes('favs-get', res);
+        }
+        async function execFavsPost() {
+            const body = JSON.parse(document.getElementById('req-favs-post').value);
+            const res = await callApi('/api/filters/favorites', 'POST', body);
+            renderRes('favs-post', res);
+        }
+        async function execFavsDel() {
+            const id = document.getElementById('req-favs-del-id').value;
+            const res = await callApi(`/api/filters/favorites/${id}`, 'DELETE');
+            renderRes('favs-del', res);
+        }
+        async function execPrefGet() {
+            const res = await callApi('/api/preferences');
+            renderRes('pref-get', res);
+        }
+        async function execPrefPost() {
+            const body = JSON.parse(document.getElementById('req-pref-post').value);
+            const res = await callApi('/api/preferences', 'POST', body);
+            renderRes('pref-post', res);
+        }
+
+        async function execAdminConnsGet() {
+            const res = await callApi('/api/admin/connections');
+            renderRes('admin-conns-get', res);
+        }
+        async function execAdminConnsPost() {
+            const body = JSON.parse(document.getElementById('req-admin-conns-post').value);
+            const res = await callApi('/api/admin/connections', 'POST', body);
+            renderRes('admin-conns-post', res);
+        }
+        async function execAdminConnsPut() {
+            const body = JSON.parse(document.getElementById('req-admin-conns-put').value);
+            const id = body.id;
+            const res = await callApi(`/api/admin/connections/${id}`, 'PUT', body);
+            renderRes('admin-conns-put', res);
+        }
+        async function execAdminConnsDel() {
+            const id = document.getElementById('req-admin-conns-del-id').value;
+            const res = await callApi(`/api/admin/connections/${id}`, 'DELETE');
+            renderRes('admin-conns-del', res);
+        }
+        async function execAdminUsersGet() {
+            const res = await callApi('/api/admin/users');
+            renderRes('admin-users-get', res);
+        }
+        async function execAdminUsersPost() {
+            const body = JSON.parse(document.getElementById('req-admin-users-post').value);
+            const res = await callApi('/api/admin/users', 'POST', body);
+            renderRes('admin-users-post', res);
+        }
+        async function execAdminUsersPut() {
+            const body = JSON.parse(document.getElementById('req-admin-users-put').value);
+            const id = body.id;
+            const res = await callApi(`/api/admin/users/${id}`, 'PUT', body);
+            renderRes('admin-users-put', res);
+        }
+        async function execAdminUsersDel() {
+            const id = document.getElementById('req-admin-users-del-id').value;
+            const res = await callApi(`/api/admin/users/${id}`, 'DELETE');
+            renderRes('admin-users-del', res);
+        }
+        async function execAdminWarrantsGet() {
+            const res = await callApi('/api/admin/warrants');
+            renderRes('admin-warrants-get', res);
+        }
+        async function execAdminWarrantsPost() {
+            const body = JSON.parse(document.getElementById('req-admin-warrants-post').value);
+            const res = await callApi('/api/admin/warrants', 'POST', body);
+            renderRes('admin-warrants-post', res);
+        }
+        async function execAdminWarrantsPut() {
+            const body = JSON.parse(document.getElementById('req-admin-warrants-put').value);
+            const id = body.id;
+            const res = await callApi(`/api/admin/warrants/${id}`, 'PUT', body);
+            renderRes('admin-warrants-put', res);
+        }
+        async function execAdminWarrantsDel() {
+            const id = document.getElementById('req-admin-warrants-del-id').value;
+            const res = await callApi(`/api/admin/warrants/${id}`, 'DELETE');
+            renderRes('admin-warrants-del', res);
+        }
+        async function execAlertsGet() {
+            const res = await callApi('/api/alerts');
+            renderRes('alerts-get', res);
+        }
+        async function execAlertsPut() {
+            const body = JSON.parse(document.getElementById('req-alerts-put').value);
+            const id = body.id;
+            const res = await callApi(`/api/alerts/${id}`, 'PUT', body);
+            renderRes('alerts-put', res);
+        }
+        async function execNotifGet() {
+            const res = await callApi('/api/admin/notifications');
+            renderRes('admin-notif-get', res);
+        }
+        async function execNotifPost() {
+            const body = JSON.parse(document.getElementById('req-admin-notif-post').value);
+            const res = await callApi('/api/admin/notifications', 'POST', body);
+            renderRes('admin-notif-post', res);
+        }
+
+        async function execStatsBras() {
+            const res = await callApi('/api/stats/bras-distribution');
+            renderRes('stats-bras', res);
+        }
+        async function execStatsHourly() {
+            const res = await callApi('/api/stats/hourly-traffic');
+            renderRes('stats-hourly', res);
+        }
+        async function execStatsTrend() {
+            const res = await callApi('/api/stats/traffic-trend');
+            renderRes('stats-trend', res);
+        }
+        async function execStatsHeatmap() {
+            const res = await callApi('/api/stats/heatmap');
+            renderRes('stats-heatmap', res);
+        }
+        async function execInfraBrasPost() {
+            try {
+                const body = JSON.parse(document.getElementById('req-infra-bras-post').value);
+                const res = await callApi('/api/infra/bras', 'POST', body);
+                renderRes('infra-bras-post', res);
+            } catch (err) {
+                renderRes('infra-bras-post', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            }
+        }
+        async function execInfraBrasPut() {
+            try {
+                const body = JSON.parse(document.getElementById('req-infra-bras-put').value);
+                const res = await callApi('/api/infra/bras', 'PUT', body);
+                renderRes('infra-bras-put', res);
+            } catch (err) {
+                renderRes('infra-bras-put', { status: 'Error', data: { error: 'Invalid JSON: ' + err.message }, duration: 0 });
+            }
+        }
+        async function execInfraBrasDel() {
+            const cidr = document.getElementById('req-infra-bras-del-cidr').value;
+            const res = await callApi(`/api/infra/bras?cidr=${cidr}`, 'DELETE');
+            renderRes('infra-bras-del', res);
+        }
+
+        async function execInfraNodes() {
+            const res = await callApi('/api/infra/nodes');
+            renderRes('infra-nodes', res);
+        }
+        async function execInfraVms() {
+            const res = await callApi('/api/infra/vms');
+            renderRes('infra-vms', res);
+        }
+        async function execInfraBras() {
+            const res = await callApi('/api/infra/bras-list');
+            renderRes('infra-bras', res);
+        }
+    </script>
+
+</body>
+</html>
