@@ -2,34 +2,40 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
+import helmet from 'helmet';
 import { createClient } from '@clickhouse/client';
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-import db from './localdb.js';
-import { generateToken, authMiddleware, adminMiddleware, roleMiddleware } from './auth.js';
-import logger from './logger.js';
-import { encrypt, decrypt } from './crypto.js';
-import { sendNotification } from './src/services/notificationService.js';
+import db from '../localdb.js';
+import { generateToken, authMiddleware, adminMiddleware, roleMiddleware } from '../auth.js';
+import logger from '../logger.js';
+import { encrypt, decrypt } from '../crypto.js';
+import { sendNotification } from '../src/services/notificationService.js';
 import rateLimit from 'express-rate-limit';
 
-import { getClickHouseClient, resolveActiveConnections, getFullyQualifiedView, cachedColumns } from './src/services/connectionService.js';
-import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodDateRange, fetchStatsForRange } from './src/services/queryService.js';
-import { logAuditAction } from './src/services/auditService.js';
-import { runWarrantMonitor, runAnomalyDetection } from './src/services/monitoringService.js';
-import { validate, schemas } from './src/services/validationService.js';
-import proxmoxService from './src/services/proxmoxService.js';
+import { getClickHouseClient, resolveActiveConnections, getFullyQualifiedView, cachedColumns } from '../src/services/connectionService.js';
+import { buildWhereClause, resolveColumn, getPeriodDateRange, getPreviousPeriodDateRange, fetchStatsForRange } from '../src/services/queryService.js';
+import { logAuditAction } from '../src/services/auditService.js';
+import { runWarrantMonitor, runAnomalyDetection } from '../src/services/monitoringService.js';
+import { validate, schemas } from '../src/services/validationService.js';
+import proxmoxService from '../src/services/proxmoxService.js';
 
-if (!process.env.JWT_SECRET) {
-  console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
-  process.exit(1);
+const REQUIRED_ENV = ['JWT_SECRET', 'CLICKHOUSE_HOST', 'CLICKHOUSE_DATABASE'];
+for (const env of REQUIRED_ENV) {
+  if (!process.env[env]) {
+    logger.error(`FATAL ERROR: ${env} is not defined in environment variables.`);
+    process.exit(1);
+  }
 }
 
 const app = express();
-console.log(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.2`);
+logger.info(`[SERVER BOOT] Starting server at ${new Date().toISOString()} - Version 2.2`);
+app.use(helmet());
 app.use(cors());
 app.use(compression());
 app.use(express.json());
+app.use(express.static(process.cwd()));
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -46,11 +52,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const VIEW = 'view_parsed_logs';
-
-app.get('/api/debug/secret', (req, res) => {
-  res.json({ secret: process.env.JWT_SECRET || 'ipdr-secret-key-2026' });
-});
+const VIEW = process.env.CLICKHOUSE_VIEW || 'view_parsed_logs';
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Server is running' });
@@ -72,12 +74,8 @@ app.get('/api/health', authMiddleware, async (req, res) => {
   } catch (err) { res.status(400).json({ status: 'error', message: err.message }); }
 });
 
-app.get('/', (req, res) => { res.sendFile(path.join(process.cwd(), 'index.html')); });
-app.get('/login', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
-app.get('/login.html', (req, res) => { res.sendFile(path.join(process.cwd(), 'login.html')); });
-app.get('/api-docs', (req, res) => { res.sendFile(path.join(process.cwd(), 'api-docs.html')); });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req, res, next) => {
   try {
     const { username, password } = req.body;
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
@@ -86,12 +84,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const token = generateToken(user);
     res.json({ token, user: { username: user.username, role: user.role } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 app.post('/api/auth/logout', (req, res) => { res.json({ message: 'Logged out successfully' }); });
 
-app.delete('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin']), async (req, res, next) => {
   try {
     const { id } = req.params;
     const conn = db.prepare('SELECT * FROM connections WHERE id = ?').get(id);
@@ -100,10 +98,10 @@ app.delete('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin'
     const result = db.prepare('DELETE FROM connections WHERE id = ?').run(id);
     await logAuditAction(req.user.id, 'DELETE', 'connection', id, conn, null, req);
     res.json({ message: 'Connection deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.delete('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin']), async (req, res, next) => {
   try {
     const { id } = req.params;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -112,7 +110,7 @@ app.delete('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin']), as
     const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
     await logAuditAction(req.user.id, 'DELETE', 'user', id, user, null, req);
     res.json({ message: 'User deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 app.get('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
@@ -120,7 +118,7 @@ app.get('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'mana
   res.json(conns);
 });
 
-app.post('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.create), async (req, res) => {
+app.post('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.create), async (req, res, next) => {
   try {
     const { label, host, username, password, database } = req.body;
     const encryptedPassword = encrypt(password);
@@ -128,7 +126,7 @@ app.post('/api/admin/connections', authMiddleware, roleMiddleware(['admin', 'man
     const id = result.lastInsertRowid;
     await logAuditAction(req.user.id, 'CREATE', 'connection', id, null, { label, host, username, database }, req);
     res.json({ id, message: 'Connection created' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 app.get('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
@@ -146,7 +144,7 @@ app.get('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager', 
   res.json(usersWithConns);
 });
 
-app.post('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.create), async (req, res) => {
+app.post('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.create), async (req, res, next) => {
   try {
     const { username, password, connectionIds, role } = req.body;
     const hash = await bcrypt.hash(password, 10);
@@ -161,10 +159,10 @@ app.post('/api/admin/users', authMiddleware, roleMiddleware(['admin', 'manager']
     }
     await logAuditAction(req.user.id, 'CREATE', 'user', userId, null, { username, role, connectionIds }, req);
     res.json({ id: userId, message: 'User created' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.put('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.update), async (req, res) => {
+app.put('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.connection.update), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { label, host, username, password, database } = req.body;
@@ -181,10 +179,10 @@ app.put('/api/admin/connections/:id', authMiddleware, roleMiddleware(['admin', '
     }
     await logAuditAction(req.user.id, 'UPDATE', 'connection', id, oldConn, { label, host, username, database }, req);
     res.json({ message: 'Connection updated' });
-  } catch (err) { logger.error(\`[ERROR] Connection Update failed: \${err.message}\`); res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.put('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.update), async (req, res) => {
+app.put('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.user.update), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { username, password, connectionIds, role } = req.body;
@@ -210,20 +208,20 @@ app.put('/api/admin/users/:id', authMiddleware, roleMiddleware(['admin', 'manage
     }
     await logAuditAction(req.user.id, 'UPDATE', 'user', id, oldUser, { username, role, connectionIds }, req);
     res.json({ message: 'User updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // ── User Personalization ──────────────────────────────────────────────
 
-app.get('/api/filters/favorites', authMiddleware, (req, res) => {
+app.get('/api/filters/favorites', authMiddleware, (req, res, next) => {
   try {
     const userId = req.user.id;
     const favorites = db.prepare('SELECT * FROM favorite_filters WHERE user_id = ? ORDER BY created_at DESC').all(userId);
     res.json(favorites);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/filters/favorites', authMiddleware, (req, res) => {
+app.post('/api/filters/favorites', authMiddleware, (req, res, next) => {
   try {
     const { name, filter_values } = req.body;
     const userId = req.user.id;
@@ -231,47 +229,47 @@ app.post('/api/filters/favorites', authMiddleware, (req, res) => {
     const result = db.prepare('INSERT INTO favorite_filters (user_id, name, filter_values) VALUES (?, ?, ?)')
       .run(userId, name, JSON.stringify(filter_values));
     res.json({ id: result.lastInsertRowid, message: 'Favorite filter saved' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.delete('/api/filters/favorites/:id', authMiddleware, (req, res) => {
+app.delete('/api/filters/favorites/:id', authMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
     const result = db.prepare('DELETE FROM favorite_filters WHERE id = ? AND user_id = ?').run(id, userId);
     if (result.changes === 0) return res.status(404).json({ error: 'Favorite not found' });
     res.json({ message: 'Favorite deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.get('/api/preferences', authMiddleware, (req, res) => {
+app.get('/api/preferences', authMiddleware, (req, res, next) => {
   try {
     const userId = req.user.id;
     const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
     res.json(pref || { dashboard_layout: null });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/preferences', authMiddleware, (req, res) => {
+app.post('/api/preferences', authMiddleware, (req, res, next) => {
   try {
     const { dashboard_layout } = req.body;
     const userId = req.user.id;
     db.prepare('INSERT OR REPLACE INTO user_preferences (user_id, dashboard_layout, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
       .run(userId, JSON.stringify(dashboard_layout));
     res.json({ message: 'Preferences updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // ── Warrant & Alert System ──────────────────────────────────────────────
 
-app.get('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+app.get('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res, next) => {
   try {
     const warrants = db.prepare('SELECT * FROM warrants ORDER BY created_at DESC').all();
     res.json(warrants);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.create), async (req, res) => {
+app.post('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.create), async (req, res, next) => {
   try {
     const { name, conditions } = req.body;
     if (!name || !conditions || !Array.isArray(conditions)) return res.status(400).json({ error: 'Name and conditions array are required' });
@@ -280,10 +278,10 @@ app.post('/api/admin/warrants', authMiddleware, roleMiddleware(['admin', 'manage
     const id = result.lastInsertRowid;
     await logAuditAction(req.user.id, 'CREATE', 'warrant', id, null, { name, conditions }, req);
     res.json({ id, message: 'Warrant created' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.put('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.update), async (req, res) => {
+app.put('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.warrant.update), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, conditions, active } = req.body;
@@ -302,10 +300,10 @@ app.put('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin', 'man
     if (result.changes === 0) return res.status(404).json({ error: 'Warrant not found' });
     await logAuditAction(req.user.id, 'UPDATE', 'warrant', id, oldWarrant, { name, conditions, active }, req);
     res.json({ message: 'Warrant updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.delete('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin']), async (req, res, next) => {
   try {
     const { id } = req.params;
     const warrant = db.prepare('SELECT * FROM warrants WHERE id = ?').get(id);
@@ -313,10 +311,10 @@ app.delete('/api/admin/warrants/:id', authMiddleware, roleMiddleware(['admin']),
     const result = db.prepare('DELETE FROM warrants WHERE id = ?').run(id);
     await logAuditAction(req.user.id, 'DELETE', 'warrant', id, warrant, null, req);
     res.json({ message: 'Warrant deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.get('/api/alerts', authMiddleware, (req, res) => {
+app.get('/api/alerts', authMiddleware, (req, res, next) => {
   try {
     const alerts = db.prepare(\`
       SELECT a.*, w.name as warrant_name
@@ -326,66 +324,66 @@ app.get('/api/alerts', authMiddleware, (req, res) => {
       ORDER BY a.detected_at DESC
     \`).all();
     res.json(alerts);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.put('/api/alerts/:id', authMiddleware, (req, res) => {
+app.put('/api/alerts/:id', authMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
     const { resolved } = req.body;
     const result = db.prepare('UPDATE alerts SET resolved = ? WHERE id = ?').run(resolved, id);
     if (result.changes === 0) return res.status(404).json({ error: 'Alert not found' });
     res.json({ message: 'Alert status updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.put('/api/alerts/resolve-all', authMiddleware, (req, res) => {
+app.put('/api/alerts/resolve-all', authMiddleware, (req, res, next) => {
   try {
     db.prepare('UPDATE alerts SET resolved = 1').run();
     res.json({ message: 'All alerts resolved' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manager']), (req, res) => {
+app.delete('/api/alerts/clear', authMiddleware, roleMiddleware(['admin', 'manager']), (req, res, next) => {
   try {
     db.prepare('DELETE FROM alerts').run();
     res.json({ message: 'Alert history cleared' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // ── Proxmox Proxy Endpoints ──────────────────────────────────────────────
 
-app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/nodes', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const nodes = await proxmoxService.getNodes();
     res.json(nodes);
   } catch (err) {
     logger.error(\`[Infra Bridge Error] Nodes: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to fetch cluster nodes' });
+    next(err);
   }
 });
 
-app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/vms', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const vms = await proxmoxService.getVMs();
     res.json(vms);
   } catch (err) {
     logger.error(\`[Infra Bridge Error] VMs: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to fetch cluster VMs' });
+    next(err);
   }
 });
 
-app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.get('/api/infra/bras-list', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const bras = await proxmoxService.getStaticBrasIpSet();
     res.json(bras);
   } catch (err) {
     logger.error(\`[Infra Bridge Error] Static BRAS IPSet: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to fetch BRAS IPSet data' });
+    next(err);
   }
 });
 
-app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const { cidr, deviceName, deviceLabel } = req.body;
     if (!cidr) return res.status(400).json({ error: 'CIDR is required' });
@@ -394,11 +392,11 @@ app.post('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager'])
     res.json({ data: result.data, message: 'BRAS entry added successfully' });
   } catch (err) {
     logger.error(\`[Infra Bridge Error] Add BRAS: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to add BRAS entry' });
+    next(err);
   }
 });
 
-app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const { cidr, deviceName, deviceLabel } = req.body;
     if (!cidr) return res.status(400).json({ error: 'CIDR is required in request body' });
@@ -407,11 +405,11 @@ app.put('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']),
     res.json({ data: result.data, message: 'BRAS entry updated successfully' });
   } catch (err) {
     logger.error(\`[Infra Bridge Error] Update BRAS: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to update BRAS entry' });
+    next(err);
   }
 });
 
-app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res) => {
+app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager']), async (req, res, next) => {
   try {
     const { cidr } = req.query;
     if (!cidr) return res.status(400).json({ error: 'CIDR is required as a query parameter' });
@@ -419,18 +417,18 @@ app.delete('/api/infra/bras', authMiddleware, roleMiddleware(['admin', 'manager'
     res.json({ data: result.data, message: 'BRAS entry deleted successfully' });
   } catch (err) {
     logger.error(\`[Infra Bridge Error] Delete BRAS: \${err.message}\`);
-    res.status(500).json({ error: 'Failed to delete BRAS entry' });
+    next(err);
   }
 });
 
-app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+app.get('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res, next) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings').all();
     res.json(settings);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.settings.update), async (req, res) => {
+app.post('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.settings.update), async (req, res, next) => {
   try {
     const { key, value } = req.body;
     if (!key) return res.status(400).json({ error: 'Key is required' });
@@ -438,19 +436,19 @@ app.post('/api/admin/settings', authMiddleware, roleMiddleware(['admin', 'manage
     db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
     await logAuditAction(req.user.id, 'UPDATE', 'setting', key, oldSetting, { key, value }, req);
     res.json({ message: 'Setting updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.get('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res) => {
+app.get('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager', 'auditor']), (req, res, next) => {
   try {
     const settings = db.prepare('SELECT * FROM system_settings WHERE key LIKE "notif_%"').all();
     const config = {};
     settings.forEach(s => { config[s.key.replace('notif_', '')] = s.value; });
     res.json(config);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.notifications.update), async (req, res) => {
+app.post('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'manager']), validate(schemas.notifications.update), async (req, res, next) => {
   try {
     const { provider, token, chatId, webhookUrl } = req.body;
     if (!provider) return res.status(400).json({ error: 'Provider is required' });
@@ -470,10 +468,10 @@ app.post('/api/admin/notifications', authMiddleware, roleMiddleware(['admin', 'm
     }
     await logAuditAction(req.user.id, 'UPDATE', 'notifications', null, null, { provider, token, chatId, webhookUrl }, req);
     res.json({ message: 'Notification settings updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.get('/api/related', authMiddleware, async (req, res) => {
+app.get('/api/related', authMiddleware, async (req, res, next) => {
   try {
     const { src_ip, timestamp } = req.query;
     if (!src_ip || !timestamp) return res.status(400).json({ error: 'src_ip and timestamp are required' });
@@ -489,10 +487,10 @@ app.get('/api/related', authMiddleware, async (req, res) => {
     }));
 
     res.json(results.flat());
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.get('/api/stats/global', authMiddleware, async (req, res) => {
+app.get('/api/stats/global', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
     if (!activeIds || activeIds.length === 0) {
@@ -542,12 +540,11 @@ app.get('/api/stats/global', authMiddleware, async (req, res) => {
 
     res.json(finalStats);
   } catch (err) {
-    logger.error(\`[Global Stats Error] \${err.stack || err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-app.get('/api/stats/bras-distribution', authMiddleware, async (req, res) => {
+app.get('/api/stats/bras-distribution', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
 
@@ -598,11 +595,11 @@ app.get('/api/stats/bras-distribution', authMiddleware, async (req, res) => {
     res.json({ distribution, inactiveBras });
   } catch (err) {
     logger.error(\`[BRAS Dist Error] \${err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res) => {
+app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
     const results = await Promise.all(activeIds.map(async (connId) => {
@@ -621,11 +618,11 @@ app.get('/api/stats/hourly-traffic', authMiddleware, async (req, res) => {
     res.json(final.sort((a, b) => a.hour - b.hour));
   } catch (err) {
     logger.error(\`[Hourly Traffic Error] \${err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-app.get('/api/stats/traffic-trend', authMiddleware, async (req, res) => {
+app.get('/api/stats/traffic-trend', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
     const results = await Promise.all(activeIds.map(async (connId) => {
@@ -644,11 +641,11 @@ app.get('/api/stats/traffic-trend', authMiddleware, async (req, res) => {
     res.json(final.sort((a, b) => a.hour - b.hour));
   } catch (err) {
     logger.error(\`[Traffic Trend Error] \${err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-app.get('/api/stats/heatmap', authMiddleware, async (req, res) => {
+app.get('/api/stats/heatmap', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
     const results = await Promise.all(activeIds.map(async (connId) => {
@@ -667,7 +664,7 @@ app.get('/api/stats/heatmap', authMiddleware, async (req, res) => {
     res.json(merged);
   } catch (err) {
     logger.error(\`[Heatmap Error] \${err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
@@ -683,7 +680,7 @@ async function initColumns(connectionId) {
   } catch (err) { return null; }
 }
 
-app.get('/api/columns', authMiddleware, async (req, res) => {
+app.get('/api/columns', authMiddleware, async (req, res, next) => {
   try {
     const activeIds = await resolveActiveConnections(req);
     const allCols = [];
@@ -697,10 +694,10 @@ app.get('/api/columns', authMiddleware, async (req, res) => {
     }
     const uniqueCols = Array.from(new Map(allCols.filter(c => c && c.name).map(c => [c.name, c])).values());
     res.json(uniqueCols);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req, res) => {
+app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req, res, next) => {
   try {
     logger.info(\`\n[API] Incoming Query: \${JSON.stringify(req.body, null, 2)}\`);
     const { filters = {}, page = 1, pageSize = 50, sortColumn = '', sortOrder = 'DESC' } = req.body;
@@ -767,11 +764,11 @@ app.post('/api/query', authMiddleware, validate(schemas.query.body), async (req,
   } catch (err) {
     if (err.name === 'AbortError') return;
     logger.error(\`Query failed: \${err.message}\`);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-app.post('/api/export', authMiddleware, async (req, res) => {
+app.post('/api/export', authMiddleware, async (req, res, next) => {
   try {
     const { filters = {}, maxRows = 50000 } = req.body;
     const activeIds = await resolveActiveConnections(req);
@@ -799,10 +796,10 @@ app.post('/api/export', authMiddleware, async (req, res) => {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', \`attachment; filename=\${filename}\`);
     res.send(combinedCsv);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { next(err); }
 });
 
-app.post('/api/stats', authMiddleware, async (req, res) => {
+app.post('/api/stats', authMiddleware, async (req, res, next) => {
   try {
     const { filters = {} } = req.body;
     const modifiedFilters = { ...filters };
@@ -866,17 +863,47 @@ app.post('/api/stats', authMiddleware, async (req, res) => {
   } catch (err) {
     if (err.name === 'AbortError') return;
     logger.error(\`[Stats API Error] \${err.stack || err.message}\`);
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(\`\n  🔒 IPDR API Server running on http://localhost:\${PORT}\`);
-  console.log(\`  📊 ClickHouse: \${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}\`);
-  console.log(\`  📁 Database:   \${process.env.CLICKHOUSE_DATABASE || 'syslogdb'}\`);
-  console.log(\`  👁  View:       \${VIEW}\n\`);
+const server = app.listen(PORT, () => {
+  logger.info(\`\n  🔒 IPDR API Server running on http://localhost:\${PORT}\`);
+  logger.info(\`  📊 ClickHouse: \${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}\`);
+  logger.info(\`  📁 Database:   \${process.env.CLICKHOUSE_DATABASE || 'syslogdb'}\`);
+  logger.info(\`  👁  View:       \${VIEW}\n\`);
 });
+
+// ── Global Error Handler ─────────────────────────────────────────────────────
+
+app.use((err, req, res, next) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  logger.error(\`[ERROR] \${req.method} \${req.url} - \${err.stack || err.message}\`);
+
+  res.status(err.status || 500).json({
+    error: isProd ? 'Internal Server Error' : err.message,
+    message: isProd ? 'An unexpected error occurred. Please contact the administrator.' : err.stack
+  });
+});
+
+// ── Lifecycle Management ─────────────────────────────────────────────────────
+
+function gracefulShutdown(signal) {
+  logger.info(\`\${signal} received. Shutting down gracefully...\`);
+  server.close(() => {
+    logger.info('HTTP server closed.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    logger.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 setInterval(runAnomalyDetection, 60 * 60 * 1000);
 setInterval(runWarrantMonitor, 15 * 60 * 1000);

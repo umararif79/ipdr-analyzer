@@ -271,8 +271,11 @@ async function initializeApp() {
           applyFilterValues(urlFilters);
         }
 
-        await loadStats('initial-load');
-        await loadGlobalCharts('initial-load');
+        // Execute all dashboard data fetches in parallel to reduce load time
+        await Promise.all([
+          loadStats('initial-load'),
+          loadGlobalCharts('initial-load')
+        ]);
       } else {
         setColumns(finalCols);
         renderFilters(columns);

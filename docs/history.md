@@ -1,5 +1,17 @@
 # Project History
 
+## v2.3 (2026-06-23)
+- **UI/UX**: 
+  - Compacted dashboard graphs into a 2x2 grid for better visibility.
+  - Implemented full-screen modal expansion for all dashboard charts with adaptive horizontal/vertical scaling.
+  - Added "Export Image" feature to save expanded charts as PNG files.
+
+## v2.2 (2026-06-23)
+- **Performance**: Implemented parallel execution of dashboard queries using `Promise.all` to reduce page load time.
+- **Timezone Fix**: Resolved 00:00-04:00 data gap in Hourly and Trend graphs by shifting interpretation to `Asia/Karachi`.
+- **Stability**: Added robust `toDateTime()` casting to handle `String` vs `DateTime64` types across multi-tenant ClickHouse views.
+- **Bug Fixes**: Corrected `toTimeZone` argument order in API endpoints.
+
 ## v2.1 (2026-06-22)
 - **Features**:
   - Implemented a comprehensive Audit Log system to track administrative changes with a new `audit-logs.html` UI and `/api/admin/audit` endpoint.

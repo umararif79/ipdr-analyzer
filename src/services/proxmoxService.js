@@ -7,16 +7,24 @@ import configService from './configService.js';
  */
 class ProxmoxService {
   constructor() {
-    this.host = configService.get('PROXMOX_HOST', 'https://10.202.1.201:8006');
-    this.username = configService.get('PROXMOX_USERNAME', 'root@pam');
-    this.password = configService.get('PROXMOX_PASSWORD', 'Ewo9San7@KKG');
-
     this.ticket = null;
     this.csrfToken = null;
     this.ticketExpiry = null;
 
     // Proxmox often uses self-signed certificates
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  }
+
+  get host() {
+    return configService.get('PROXMOX_HOST', 'https://10.202.1.201:8006');
+  }
+
+  get username() {
+    return configService.get('PROXMOX_USERNAME', 'root@pam');
+  }
+
+  get password() {
+    return configService.get('PROXMOX_PASSWORD', 'Ewo9San7@KKG');
   }
 
   /**

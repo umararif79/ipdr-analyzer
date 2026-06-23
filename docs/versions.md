@@ -1,8 +1,20 @@
 # Project Versions
 
 # Project Versioning
-## Current Version: v2.1
-**Release Date:** 2026-06-22
+## Current Version: v2.3
+**Release Date:** 2026-06-23
+
+### v2.3 Changes
+- **Dashboard Graph Enhancements**: 
+  - Compacted layout into a 2x2 grid for optimized real estate usage.
+  - Added "Expand" functionality to view any graph in a focused, full-screen modal (fully adaptive horizontally and vertically).
+  - Implemented an "Export Image" feature to allow users to save chart snapshots as PNGs.
+
+### v2.2 Changes
+- **Performance Optimization**: Implemented parallel execution of dashboard queries using `Promise.all` in `fetchStatsForRange`, significantly reducing page load time.
+- **Timezone Alignment & Data Correction**: Resolved the "missing 5 hours" (00:00 to 04:00) data gap in "Hourly Traffic Volume" and "Traffic Trend" graphs by shifting ClickHouse query interpretation to `Asia/Karachi` and ensuring correct day boundaries.
+- **Robust Type Casting**: Solved `Illegal type String` errors by implementing a universal `toDateTime()` cast for timestamp columns, ensuring compatibility across diverse ClickHouse views.
+- **Bug Fixes**: Corrected argument order for `toTimeZone` function in API endpoints.
 
 ### v2.1 Changes
 - **Audit Log System**: Comprehensive auditing for administrative actions with a new UI page and dedicated API.

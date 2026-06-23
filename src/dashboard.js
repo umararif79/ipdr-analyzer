@@ -107,10 +107,116 @@ export function updateDashboard(stats) {
   });
 }
 
+/**
+ * Expands a chart into a full-screen modal view.
+ * @param {string} type - Chart type ('bras', 'hourly', 'trend', 'heatmap')
+ * @param {string} title - Title for the modal header
+ */
+export async function expandChart(type, title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const content = document.createElement('div');
+  content.className = 'modal-content glass-panel';
+  content.style.width = '98%';
+  content.style.maxWidth = 'none';
+  content.style.height = '98vh';
+
+  const header = document.createElement('div');
+  header.className = 'modal-header';
+  header.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; flex:1">
+      <div style="font-weight:bold; font-size:1.2rem; color:var(--text-primary)">${title}</div>
+    </div>
+    <div class="chart-actions" style="gap:10px">
+      <button class="btn-icon" id="modal-export-btn">
+        <i class="fas fa-download"></i> Export Image
+      </button>
+      <div class="close-expanded" style="cursor:pointer; font-size:1.5rem; line-height:1; margin-left:10px;">&times;</div>
+    </div>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  body.style.padding = '10px';
+
+  const chartWrap = document.createElement('div');
+  chartWrap.className = 'modal-chart-container';
+
+  const canvasId = `modal-chart-${Date.now()}`;
+
+  if (type === 'heatmap') {
+    chartWrap.innerHTML = `<div id="${canvasId}" class="heatmap-container" style="display:grid; grid-template-columns: repeat(24, 1fr); gap:2px; font-family:var(--font-mono); font-size:0.6rem; color:var(--text-muted)"></div>`;
+  } else {
+    chartWrap.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+  }
+
+  body.appendChild(chartWrap);
+  content.appendChild(header);
+  content.appendChild(body);
+  overlay.appendChild(content);
+  document.body.appendChild(overlay);
+
+  // Draw the chart into the modal
+  let modalChart = null;
+  if (type === 'bras' && chartData.brasDaily) {
+    modalChart = await drawBrasDailyChart(chartData.brasDaily, canvasId);
+  } else if (type === 'hourly' && chartData.hourly) {
+    modalChart = await drawHourlyChart(chartData.hourly, canvasId);
+  } else if (type === 'trend' && chartData.trendCurrent) {
+    modalChart = await drawTrendChart(chartData.trendCurrent, chartData.trendPrevious, canvasId);
+  } else if (type === 'heatmap' && chartData.heatmap) {
+    drawHeatmap(chartData.heatmap, canvasId);
+  }
+
+  const close = () => {
+    if (modalChart) modalChart.destroy();
+    overlay.remove();
+  };
+
+  header.querySelector('.close-expanded').onclick = close;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+  // Export Image functionality
+  header.querySelector('#modal-export-btn').onclick = () => {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    if (type === 'heatmap') {
+      // Heatmaps are DOM elements, not canvas. We can't easily export as image without a library.
+      // For now, we'll notify the user or try to capture if it were a canvas.
+      alert('Image export is currently only supported for line/bar charts.');
+      return;
+    }
+
+    try {
+      const link = document.createElement('a');
+      link.download = `${title.replace(/\s+/g, '_').toLowerCase()}_export.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export chart image.');
+    }
+  };
+}
+
+// Expose to window for onclick handlers
+window.expandChart = expandChart;
+
 // ── Charts ──────────────────────────────────────────────────────
 let protocolChart = null;
 let hourlyChart = null;
 let trendChart = null;
+
+// Cache for the latest data used in charts to allow expansion into modals
+const chartData = {
+  brasDaily: null,
+  hourly: null,
+  trendCurrent: null,
+  trendPrevious: null,
+  heatmap: null,
+};
 
 /**
  * Render the basic structure for charts.
@@ -127,35 +233,56 @@ export function renderCharts() {
   row.className = 'chart-row';
   row.innerHTML = `
     <div class="chart-card">
-      <h3>BRAS Daily Distribution (Last 7 Days)</h3>
+      <div class="chart-header">
+        <h3>BRAS Daily Distribution (Last 7 Days)</h3>
+        <div class="chart-actions">
+          <button class="btn-icon" onclick="window.expandChart('bras', 'BRAS Daily Distribution')">
+            <i class="fas fa-expand-alt"></i> Expand
+          </button>
+        </div>
+      </div>
       <div class="chart-canvas-wrap"><canvas id="chart-bras-daily"></canvas></div>
       <div id="inactive-bras-container" class="hidden" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-subtle)">
       </div>
     </div>
     <div class="chart-card">
-      <h3>Hourly Traffic Volume</h3>
+      <div class="chart-header">
+        <h3>Hourly Traffic Volume</h3>
+        <div class="chart-actions">
+          <button class="btn-icon" onclick="window.expandChart('hourly', 'Hourly Traffic Volume')">
+            <i class="fas fa-expand-alt"></i> Expand
+          </button>
+        </div>
+      </div>
       <div class="chart-canvas-wrap"><canvas id="chart-hourly"></canvas></div>
     </div>
-  `;
-  DASHBOARD.insertAdjacentElement('afterend', row);
-
-  const trendRow = document.createElement('div');
-  trendRow.id = 'trend-row';
-  trendRow.className = 'chart-row';
-  trendRow.innerHTML = `
     <div class="chart-card">
-      <h3>Traffic Trend (Current vs Previous)</h3>
+      <div class="chart-header">
+        <h3>Traffic Trend (Current vs Previous)</h3>
+        <div class="chart-actions">
+          <button class="btn-icon" onclick="window.expandChart('trend', 'Traffic Trend')">
+            <i class="fas fa-expand-alt"></i> Expand
+          </button>
+        </div>
+      </div>
       <div class="chart-canvas-wrap"><canvas id="chart-trend"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>Traffic Heatmap (30 Days)</h3>
+      <div class="chart-header">
+        <h3>Traffic Heatmap (30 Days)</h3>
+        <div class="chart-actions">
+          <button class="btn-icon" onclick="window.expandChart('heatmap', 'Traffic Heatmap')">
+            <i class="fas fa-expand-alt"></i> Expand
+          </button>
+        </div>
+      </div>
       <div class="heatmap-scroll-wrap">
         <div id="heatmap-container" class="heatmap-container" style="display:grid; grid-template-columns: repeat(24, 1fr); gap:2px; padding:10px 0; font-family:var(--font-mono); font-size:0.6rem; color:var(--text-muted)">
         </div>
       </div>
     </div>
   `;
-  DASHBOARD.insertAdjacentElement('afterend', trendRow);
+  DASHBOARD.insertAdjacentElement('afterend', row);
 }
 
 /**
@@ -163,6 +290,7 @@ export function renderCharts() {
  */
 export function updateBrasChart(data) {
   if (!data || !data.distribution || data.distribution.length === 0) return;
+  chartData.brasDaily = data.distribution;
   drawBrasDailyChart(data.distribution);
   updateInactiveBrasList(data.inactiveBras || []);
 }
@@ -195,24 +323,28 @@ function updateInactiveBrasList(inactiveBras) {
 
 export function updateHourlyChart(data) {
   if (!data || data.length === 0) return;
+  chartData.hourly = data;
   drawHourlyChart(data);
 }
 
 export function updateTrendChart(current, previous) {
   if (!current || current.length === 0) return;
+  chartData.trendCurrent = current;
+  chartData.trendPrevious = previous;
   drawTrendChart(current, previous || []);
 }
 
 export function updateHeatmap(data) {
   if (!data || Object.keys(data).length === 0) return;
+  chartData.heatmap = data;
   drawHeatmap(data);
 }
 
-async function drawTrendChart(current, previous) {
-  const canvas = document.getElementById('chart-trend');
+async function drawTrendChart(current, previous, canvasId = 'chart-trend') {
+  const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   await ensureChartJS();
-  if (trendChart) trendChart.destroy();
+  if (trendChart && canvasId === 'chart-trend') trendChart.destroy();
 
   const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
   const currData = Array.from({ length: 24 }, (_, i) => {
@@ -224,7 +356,7 @@ async function drawTrendChart(current, previous) {
     return match ? match.cnt : 0;
   });
 
-  trendChart = new Chart(canvas, {
+  const chart = new Chart(canvas, {
     type: 'line',
     data: {
       labels,
@@ -262,10 +394,13 @@ async function drawTrendChart(current, previous) {
       },
     },
   });
+
+  if (canvasId === 'chart-trend') trendChart = chart;
+  return chart;
 }
 
-function drawHeatmap(heatmap) {
-  const container = document.getElementById('heatmap-container');
+function drawHeatmap(heatmap, containerId = 'heatmap-container') {
+  const container = document.getElementById(containerId);
   if (!container) return;
 
   const values = Object.values(heatmap);
@@ -322,11 +457,11 @@ async function ensureChartJS() {
   });
 }
 
-async function drawBrasDailyChart(brasDaily) {
-  const canvas = document.getElementById('chart-bras-daily');
+async function drawBrasDailyChart(brasDaily, canvasId = 'chart-bras-daily') {
+  const canvas = document.getElementById(canvasId);
   if (!canvas || !brasDaily || brasDaily.length === 0) return;
   await ensureChartJS();
-  if (protocolChart) protocolChart.destroy();
+  if (protocolChart && canvasId === 'chart-bras-daily') protocolChart.destroy();
 
   const labels = brasDaily.map(d => d.date);
   const allBras = [...new Set(brasDaily.flatMap(d => Object.keys(d.data)))];
@@ -339,7 +474,7 @@ async function drawBrasDailyChart(brasDaily) {
     borderRadius: 2,
   }));
 
-  protocolChart = new Chart(canvas, {
+  const chart = new Chart(canvas, {
     type: 'bar',
     data: { labels, datasets },
     options: {
@@ -362,18 +497,21 @@ async function drawBrasDailyChart(brasDaily) {
       },
     },
   });
+
+  if (canvasId === 'chart-bras-daily') protocolChart = chart;
+  return chart;
 }
 
-async function drawHourlyChart(hourly) {
-  const canvas = document.getElementById('chart-hourly');
+async function drawHourlyChart(hourly, canvasId = 'chart-hourly') {
+  const canvas = document.getElementById(canvasId);
   if (!canvas || hourly.length === 0) return;
   await ensureChartJS();
-  if (hourlyChart) hourlyChart.destroy();
+  if (hourlyChart && canvasId === 'chart-hourly') hourlyChart.destroy();
   const hourMap = {};
   hourly.forEach(h => { hourMap[parseInt(h.hour, 10)] = parseInt(h.cnt, 10); });
   const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
   const data = Array.from({ length: 24 }, (_, i) => hourMap[i] || 0);
-  hourlyChart = new Chart(canvas, {
+  const chart = new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
@@ -397,6 +535,8 @@ async function drawHourlyChart(hourly) {
       },
     },
   });
+  if (canvasId === 'chart-hourly') hourlyChart = chart;
+  return chart;
 }
 
 function formatBigNumber(n) {
